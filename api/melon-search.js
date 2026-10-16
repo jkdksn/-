@@ -16,180 +16,264 @@ export default async function handler(req, res) {
       });
     }
 
+    // 문자열 정리
     const clean = (text) => {
       return String(text || "")
         .toLowerCase()
-        .replace(/\([^)]*\)/g, "")
-        .replace(/\[[^\]]*\]/g, "")
+        .replace(/\([^)]*\)/g, " ")
+        .replace(/\[[^\]]*\]/g, " ")
+        .replace(/\{[^}]*\}/g, " ")
+        .replace(/feat\.?/gi, " ")
+        .replace(/ft\.?/gi, " ")
+        .replace(/with/gi, " ")
         .replace(/[^\w가-힣\s]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
     };
 
-    const targetTitle = clean(title);
+    const normalizeTitle = (text) => {
+      return clean(text)
+        .replace(/\bblack heart\b/gi, "검정색 하트")
+        .replace(/\bthe\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    };
+
+    const targetTitle = normalizeTitle(title);
     const targetArtist = clean(artist);
 
-    const query = `${title} ${artist || ""}`.trim();
+    console.log("YouTube title:", title);
+    console.log("YouTube artist:", artist);
+    console.log("Normalized title:", targetTitle);
+    console.log("Normalized artist:", targetArtist);
 
-    const callback = "melonCallback" + Date.now();
+    // --------------------------------
+    // 1차: 제목 + 가수
+    // --------------------------------
 
-    const searchUrl =
-      "https://www.melon.com/search/keyword/index.json" +
-      "?jscallback=" +
-      encodeURIComponent(callback) +
-      "&query=" +
-      encodeURIComponent(query) +
-      "&_=" +
-      Date.now();
+    const queries = [];
 
-    const response = await fetch(searchUrl, {
-      method: "GET",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-
-        "Accept":
-          "*/*",
-
-        "Accept-Language":
-          "ko-KR,ko;q=0.9,en-US;q=0.8",
-
-        "Referer":
-          "https://www.melon.com/index.htm",
-
-        "X-Requested-With":
-          "XMLHttpRequest"
-      }
-    });
-
-    const text = await response.text();
-
-    console.log("Melon status:", response.status);
-    console.log("Melon response:", text.slice(0, 500));
-
-    if (!response.ok) {
-      throw new Error(
-        `Melon 검색 실패: ${response.status}`
-      );
+    if (title && artist) {
+      queries.push(`${title} ${artist}`);
     }
 
-    let jsonText = text.trim();
+    // --------------------------------
+    // 2차: 제목만
+    // --------------------------------
 
-    // JSONP 형식 처리
-    const prefix = callback + "(";
+    queries.push(title);
 
-    if (jsonText.startsWith(prefix)) {
-      jsonText = jsonText.slice(prefix.length);
+    let allSongs = [];
 
-      if (jsonText.endsWith(");")) {
-        jsonText = jsonText.slice(0, -2);
-      } else if (jsonText.endsWith(")")) {
-        jsonText = jsonText.slice(0, -1);
-      }
-    } else {
-      // 혹시 JSONP 형식이 예상과 다를 경우
-      const match = jsonText.match(
-        /^[^(]+\(([\s\S]*)\);?$/
-      );
+    for (const query of queries) {
+      const callback =
+        "melonCallback" +
+        Date.now() +
+        Math.floor(Math.random() * 1000);
 
-      if (match && match[1]) {
-        jsonText = match[1].replace(/\);?$/, "");
-      }
-    }
+      const searchUrl =
+        "https://www.melon.com/search/keyword/index.json" +
+        "?jscallback=" +
+        encodeURIComponent(callback) +
+        "&query=" +
+        encodeURIComponent(query) +
+        "&_=" +
+        Date.now();
 
-    let data;
+      console.log("Melon query:", query);
 
-    try {
-      data = JSON.parse(jsonText);
-    } catch (parseError) {
-      console.error(
-        "Melon JSON parse error:",
-        parseError.message
-      );
+      const response = await fetch(searchUrl, {
+        method: "GET",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 
-      return res.status(500).json({
-        success: false,
-        error: "멜론 검색 결과를 해석하지 못했습니다.",
-        detail: parseError.message,
-        preview: text.slice(0, 300)
+          "Accept":
+            "application/javascript, application/json, text/javascript, */*; q=0.01",
+
+          "Accept-Language":
+            "ko-KR,ko;q=0.9,en-US;q=0.8",
+
+          "Referer":
+            "https://www.melon.com/index.htm",
+
+          "X-Requested-With":
+            "XMLHttpRequest"
+        }
       });
+
+      const text = await response.text();
+
+      console.log(
+        "Melon status:",
+        response.status
+      );
+
+      console.log(
+        "Melon response preview:",
+        text.substring(0, 200)
+      );
+
+      if (!response.ok) {
+        console.error(
+          "Melon request failed:",
+          response.status
+        );
+        continue;
+      }
+
+      let jsonText = text.trim();
+
+      // JSONP 제거
+      const start = jsonText.indexOf("(");
+      const end = jsonText.lastIndexOf(")");
+
+      if (start !== -1 && end !== -1) {
+        jsonText =
+          jsonText.substring(start + 1, end);
+      }
+
+      try {
+        const data = JSON.parse(jsonText);
+
+        const songs =
+          Array.isArray(data.SONGCONTENTS)
+            ? data.SONGCONTENTS
+            : [];
+
+        console.log(
+          "Songs returned:",
+          songs.length
+        );
+
+        allSongs.push(...songs);
+
+        if (songs.length > 0) {
+          break;
+        }
+      } catch (parseError) {
+        console.error(
+          "JSON parse failed:",
+          parseError.message
+        );
+      }
     }
 
-    const songs =
-      Array.isArray(data.SONGCONTENTS)
-        ? data.SONGCONTENTS
-        : [];
+    // 중복 제거
+    const uniqueSongs = [];
+
+    const seen = new Set();
+
+    for (const song of allSongs) {
+      const id =
+        song.SONGID ||
+        song.songId ||
+        song.SONG_NO ||
+        song.songNo;
+
+      if (!id) continue;
+
+      if (seen.has(String(id))) {
+        continue;
+      }
+
+      seen.add(String(id));
+      uniqueSongs.push(song);
+    }
 
     console.log(
-      "Melon songs found:",
-      songs.length
+      "Unique Melon songs:",
+      uniqueSongs.length
     );
 
-    if (songs.length === 0) {
+    if (uniqueSongs.length === 0) {
       return res.status(404).json({
         success: false,
-        error: "Melon에서 검색 결과를 찾지 못했습니다.",
-        query
+        error:
+          "Melon 검색 결과를 가져오지 못했습니다.",
+        query: title
       });
     }
+
+    // --------------------------------
+    // 가장 적합한 곡 찾기
+    // --------------------------------
 
     let bestSong = null;
     let bestScore = -1;
 
-    for (const song of songs) {
-      const melonTitle = clean(
-        song.SONGNAME ||
-        song.songName ||
-        ""
-      );
+    for (const song of uniqueSongs) {
+      const melonTitle =
+        normalizeTitle(
+          song.SONGNAME ||
+          song.songName ||
+          ""
+        );
 
-      const melonArtist = clean(
-        song.ARTISTNAME ||
-        song.artistName ||
-        ""
-      );
+      const melonArtist =
+        clean(
+          song.ARTISTNAME ||
+          song.artistName ||
+          ""
+        );
 
       let score = 0;
 
-      // 제목
+      // 제목 완전 일치
       if (melonTitle === targetTitle) {
-        score += 100;
-      } else if (
+        score += 1000;
+      }
+
+      // 제목 포함
+      else if (
         melonTitle.includes(targetTitle) ||
         targetTitle.includes(melonTitle)
       ) {
-        score += 50;
+        score += 500;
       }
 
-      // 가수
+      // 제목 단어 비교
+      const targetWords =
+        targetTitle.split(" ").filter(Boolean);
+
+      const melonWords =
+        melonTitle.split(" ").filter(Boolean);
+
+      let sameWords = 0;
+
+      for (const word of targetWords) {
+        if (melonWords.includes(word)) {
+          sameWords++;
+        }
+      }
+
+      score += sameWords * 100;
+
+      // 가수 일치
       if (
         targetArtist &&
         melonArtist === targetArtist
       ) {
-        score += 100;
-      } else if (
+        score += 300;
+      }
+
+      // 가수 포함
+      else if (
         targetArtist &&
         (
           melonArtist.includes(targetArtist) ||
           targetArtist.includes(melonArtist)
         )
       ) {
-        score += 50;
-      }
-
-      // 제목 + 가수 모두 정확히 일치
-      if (
-        melonTitle === targetTitle &&
-        targetArtist &&
-        melonArtist === targetArtist
-      ) {
-        score += 200;
+        score += 150;
       }
 
       console.log(
         "Candidate:",
         song.SONGNAME,
+        "|",
         song.ARTISTNAME,
+        "|",
         "score:",
         score
       );
@@ -200,12 +284,11 @@ export default async function handler(req, res) {
       }
     }
 
-    if (!bestSong || bestScore < 50) {
+    if (!bestSong) {
       return res.status(404).json({
         success: false,
-        error: "Melon에서 일치하는 곡을 찾지 못했습니다.",
-        query,
-        bestScore
+        error:
+          "Melon에서 적절한 곡을 찾지 못했습니다."
       });
     }
 
@@ -216,21 +299,22 @@ export default async function handler(req, res) {
       bestSong.songNo;
 
     if (!songId) {
-      console.error(
-        "Song found but ID missing:",
-        bestSong
-      );
-
       return res.status(404).json({
         success: false,
-        error: "Melon 곡 ID를 찾지 못했습니다.",
-        query
+        error:
+          "Melon 곡 ID(SID)를 찾지 못했습니다."
       });
     }
 
+    console.log(
+      "FINAL SONG:",
+      bestSong.SONGNAME,
+      bestSong.ARTISTNAME,
+      songId
+    );
+
     return res.status(200).json({
       success: true,
-      query,
       songId: String(songId),
       title:
         bestSong.SONGNAME ||
@@ -251,7 +335,8 @@ export default async function handler(req, res) {
 
     return res.status(500).json({
       success: false,
-      error: "Melon 검색 중 오류가 발생했습니다.",
+      error:
+        "Melon 검색 중 오류가 발생했습니다.",
       detail: error.message
     });
   }

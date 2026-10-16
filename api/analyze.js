@@ -39,7 +39,7 @@ export default async function handler(req, res) {
     if (!tracks.length) {
       return res.status(404).json({
         error:
-          "곡 목록을 찾지 못했습니다. 영상 설명란에 곡 목록이 있는지 확인해주세요."
+          "곡 목록을 찾지 못했습니다. 영상의 제목이나 설명에서 음악 정보를 찾을 수 없습니다."
       });
     }
 
@@ -49,7 +49,6 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-
     console.error(error);
 
     return res.status(500).json({
@@ -66,100 +65,67 @@ export default async function handler(req, res) {
 ========================= */
 
 function parseYouTubeURL(value) {
-
   try {
-
     const url = new URL(value);
 
-    // youtu.be/VIDEO_ID
     if (url.hostname === "youtu.be") {
-
       return {
         type: "video",
         id: url.pathname.substring(1)
       };
-
     }
 
-    // youtube.com
     if (
       url.hostname.includes("youtube.com") ||
       url.hostname.includes("youtube-nocookie.com")
     ) {
-
       const videoId = url.searchParams.get("v");
       const playlistId = url.searchParams.get("list");
 
       if (videoId) {
-
         return {
           type: "video",
           id: videoId
         };
-
       }
 
       if (playlistId) {
-
         return {
           type: "playlist",
           id: playlistId
         };
-
-      }
-
-      // /playlist?list=...
-      if (
-        url.pathname === "/playlist" &&
-        playlistId
-      ) {
-
-        return {
-          type: "playlist",
-          id: playlistId
-        };
-
       }
     }
 
     return null;
 
   } catch {
-
     return null;
-
   }
 }
 
 
 /* =========================
-   YouTube API 요청
+   YouTube API
 ========================= */
 
 async function youtubeAPI(endpoint) {
-
-  const key =
-    process.env.YOUTUBE_API_KEY;
+  const key = process.env.YOUTUBE_API_KEY;
 
   const separator =
-    endpoint.includes("?")
-      ? "&"
-      : "?";
+    endpoint.includes("?") ? "&" : "?";
 
   const response = await fetch(
     `https://www.googleapis.com/youtube/v3/${endpoint}${separator}key=${key}`
   );
 
-  const data =
-    await response.json();
+  const data = await response.json();
 
   if (!response.ok) {
-
     throw new Error(
       data?.error?.message ||
       "YouTube API 오류"
     );
-
   }
 
   return data;
@@ -182,45 +148,95 @@ async function getVideoTracks(videoId) {
     );
   }
 
-  const video =
-    data.items[0];
+  const video = data.items[0];
+  const snippet = video.snippet;
 
-  const snippet =
-    video.snippet;
+  const title = snippet.title || "";
+  const description = snippet.description || "";
+  const channel = snippet.channelTitle || "";
+  const tags = snippet.tags || [];
 
-  const description =
-    snippet.description || "";
+  /*
+   * 1순위:
+   * 설명란의 타임스탬프 트랙리스트
+   */
 
-  // 설명란에서 트랙리스트 찾기
-  const tracks =
+  const timestampTracks =
     parseTrackList(description);
 
-  // 트랙리스트가 없으면 영상 제목을 반환
-  if (!tracks.length) {
-
-    return [
-      {
-        title: cleanTitle(
-          snippet.title
-        ),
-        artist:
-          snippet.channelTitle || ""
-      }
-    ];
-
+  if (timestampTracks.length) {
+    return timestampTracks;
   }
 
-  return tracks;
+
+  /*
+   * 2순위:
+   * 설명에 직접 적혀 있는
+   * Artist / Song / Track / Music 정보
+   */
+
+  const musicInfo =
+    parseMusicInfo(description);
+
+  if (musicInfo.length) {
+    return musicInfo;
+  }
+
+
+  /*
+   * 3순위:
+   * 제목 자체에서
+   * "아티스트 - 곡명" 형태 찾기
+   */
+
+  const titleParsed =
+    parseSongTitle(title);
+
+  if (titleParsed.artist) {
+    return [titleParsed];
+  }
+
+
+  /*
+   * 4순위:
+   * 태그에서 음악 정보를 추정
+   *
+   * 제목과 관련된 태그가 있는 경우 활용
+   */
+
+  const tagResult =
+    parseTagsForMusic(
+      tags,
+      title
+    );
+
+  if (tagResult) {
+    return [tagResult];
+  }
+
+
+  /*
+   * 5순위:
+   * 마지막 수단
+   *
+   * 이전처럼 채널명을 무조건
+   * 아티스트로 사용하지 않는다.
+   */
+
+  return [
+    {
+      title: cleanTitle(title),
+      artist: ""
+    }
+  ];
 }
 
 
 /* =========================
-   YouTube 플레이리스트
+   플레이리스트
 ========================= */
 
-async function getPlaylistTracks(
-  playlistId
-) {
+async function getPlaylistTracks(playlistId) {
 
   const tracks = [];
 
@@ -232,10 +248,8 @@ async function getPlaylistTracks(
       `playlistItems?part=snippet&maxResults=50&playlistId=${encodeURIComponent(playlistId)}`;
 
     if (pageToken) {
-
       endpoint +=
         `&pageToken=${encodeURIComponent(pageToken)}`;
-
     }
 
     const data =
@@ -258,7 +272,6 @@ async function getPlaylistTracks(
         parseSongTitle(title);
 
       tracks.push(parsed);
-
     }
 
     if (!data.nextPageToken) {
@@ -267,7 +280,6 @@ async function getPlaylistTracks(
 
     pageToken =
       data.nextPageToken;
-
   }
 
   return tracks;
@@ -275,7 +287,7 @@ async function getPlaylistTracks(
 
 
 /* =========================
-   설명란 트랙리스트
+   설명란 타임스탬프
 ========================= */
 
 function parseTrackList(description) {
@@ -304,24 +316,13 @@ function parseTrackList(description) {
     const song =
       parseSongTitle(text);
 
-    if (
-      song.title &&
-      (
-        song.artist ||
-        text.includes("-") ||
-        text.includes("–") ||
-        text.includes("—") ||
-        text.includes("|")
-      )
-    ) {
+    if (song.title) {
 
       tracks.push({
         ...song,
         timestamp: match[1]
       });
-
     }
-
   }
 
   return tracks;
@@ -329,7 +330,78 @@ function parseTrackList(description) {
 
 
 /* =========================
-   제목 → 곡명 / 가수
+   설명의 음악 정보
+========================= */
+
+function parseMusicInfo(description) {
+
+  const tracks = [];
+
+  const lines =
+    description.split(/\r?\n/);
+
+  let artist = "";
+  let song = "";
+
+  for (const line of lines) {
+
+    const clean =
+      line
+        .replace(/\*\*/g, "")
+        .replace(/https?:\/\/\S+/g, "")
+        .trim();
+
+    if (!clean) continue;
+
+    /*
+     * Artist: xxx
+     * Artist - xxx
+     */
+
+    const artistMatch =
+      clean.match(
+        /^(?:artist|아티스트|가수)\s*[:：-]\s*(.+)$/i
+      );
+
+    if (artistMatch) {
+      artist =
+        cleanArtist(
+          artistMatch[1]
+        );
+    }
+
+    /*
+     * Song: xxx
+     * Track: xxx
+     * Title: xxx
+     */
+
+    const songMatch =
+      clean.match(
+        /^(?:song|track|title|곡명|노래)\s*[:：-]\s*(.+)$/i
+      );
+
+    if (songMatch) {
+      song =
+        cleanTitle(
+          songMatch[1]
+        );
+    }
+  }
+
+  if (song) {
+    tracks.push({
+      title: song,
+      artist
+    });
+  }
+
+  return tracks;
+}
+
+
+/* =========================
+   제목 파싱
 ========================= */
 
 function parseSongTitle(text) {
@@ -340,7 +412,13 @@ function parseSongTitle(text) {
       .replace(/^\[[^\]]+\]\s*/, "")
       .trim();
 
-  // 곡명 - 가수
+  /*
+   * Artist - Title
+   *
+   * 단, 하이픈이 여러 개 들어간 경우
+   * 첫 번째 하이픈을 기준으로만 나누지 않는다.
+   */
+
   let match =
     text.match(
       /^(.+?)\s+[-–—]\s+(.+)$/
@@ -349,13 +427,16 @@ function parseSongTitle(text) {
   if (match) {
 
     return {
-      title: cleanTitle(match[1]),
-      artist: cleanArtist(match[2])
+      artist: cleanArtist(match[1]),
+      title: cleanTitle(match[2])
     };
-
   }
 
-  // 곡명 | 가수
+
+  /*
+   * Title | Artist
+   */
+
   if (text.includes("|")) {
 
     const parts =
@@ -369,11 +450,59 @@ function parseSongTitle(text) {
           parts.slice(1).join("|")
         )
     };
-
   }
+
 
   return {
     title: cleanTitle(text),
+    artist: ""
+  };
+}
+
+
+/* =========================
+   태그 분석
+========================= */
+
+function parseTagsForMusic(tags, title) {
+
+  if (!Array.isArray(tags) || !tags.length) {
+    return null;
+  }
+
+  const lowerTitle =
+    title.toLowerCase();
+
+  /*
+   * 제목과 동일하거나
+   * 제목의 일부를 포함하는 태그만 후보로 사용
+   */
+
+  const related =
+    tags.filter(tag => {
+
+      const value =
+        String(tag || "")
+          .trim();
+
+      if (!value) return false;
+
+      const lower =
+        value.toLowerCase();
+
+      return (
+        lower === lowerTitle ||
+        lowerTitle.includes(lower) ||
+        lower.includes(lowerTitle)
+      );
+    });
+
+  if (!related.length) {
+    return null;
+  }
+
+  return {
+    title: cleanTitle(title),
     artist: ""
   };
 }
@@ -385,27 +514,33 @@ function parseSongTitle(text) {
 
 function cleanTitle(text) {
 
-  return text
+  return String(text || "")
     .replace(
-      /\s*\((official|official audio|lyrics?|가사)[^)]*\)/gi,
+      /\s*\((official|official audio|lyrics?|가사|mv|music video)[^)]*\)/gi,
       ""
     )
     .replace(
-      /\s*\[[^\]]*(official|lyrics?|가사)[^\]]*\]/gi,
+      /\s*\[[^\]]*(official|lyrics?|가사|mv|music video)[^\]]*\]/gi,
       ""
+    )
+    .replace(
+      /\s+/g,
+      " "
     )
     .trim();
-
 }
 
 
 function cleanArtist(text) {
 
-  return text
+  return String(text || "")
     .replace(
-      /\s*\((official|official audio|lyrics?|가사)[^)]*\)/gi,
+      /\s*\((official|official audio|lyrics?|가사|mv|music video)[^)]*\)/gi,
       ""
     )
+    .replace(
+      /\s+/g,
+      " "
+    )
     .trim();
-
 }

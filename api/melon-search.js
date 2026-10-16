@@ -31,24 +31,41 @@ export default async function handler(req, res) {
 
     const query = `${title} ${artist || ""}`.trim();
 
-    const callback =
-      "melonCallback" + Date.now();
+    const callback = "melonCallback" + Date.now();
 
     const searchUrl =
       "https://www.melon.com/search/keyword/index.json" +
       "?jscallback=" +
       encodeURIComponent(callback) +
       "&query=" +
-      encodeURIComponent(query);
+      encodeURIComponent(query) +
+      "&_=" +
+      Date.now();
 
     const response = await fetch(searchUrl, {
+      method: "GET",
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+
+        "Accept":
+          "*/*",
+
+        "Accept-Language":
+          "ko-KR,ko;q=0.9,en-US;q=0.8",
+
         "Referer":
-          "https://www.melon.com/"
+          "https://www.melon.com/index.htm",
+
+        "X-Requested-With":
+          "XMLHttpRequest"
       }
     });
+
+    const text = await response.text();
+
+    console.log("Melon status:", response.status);
+    console.log("Melon response:", text.slice(0, 500));
 
     if (!response.ok) {
       throw new Error(
@@ -56,16 +73,9 @@ export default async function handler(req, res) {
       );
     }
 
-    const text = await response.text();
-
-    /*
-      Melon 응답은 JSONP 형태일 수 있다.
-
-      melonCallback123(...);
-    */
-
     let jsonText = text.trim();
 
+    // JSONP 형식 처리
     const prefix = callback + "(";
 
     if (jsonText.startsWith(prefix)) {
@@ -76,44 +86,72 @@ export default async function handler(req, res) {
       } else if (jsonText.endsWith(")")) {
         jsonText = jsonText.slice(0, -1);
       }
+    } else {
+      // 혹시 JSONP 형식이 예상과 다를 경우
+      const match = jsonText.match(
+        /^[^(]+\(([\s\S]*)\);?$/
+      );
+
+      if (match && match[1]) {
+        jsonText = match[1].replace(/\);?$/, "");
+      }
     }
 
-    const data = JSON.parse(jsonText);
+    let data;
+
+    try {
+      data = JSON.parse(jsonText);
+    } catch (parseError) {
+      console.error(
+        "Melon JSON parse error:",
+        parseError.message
+      );
+
+      return res.status(500).json({
+        success: false,
+        error: "멜론 검색 결과를 해석하지 못했습니다.",
+        detail: parseError.message,
+        preview: text.slice(0, 300)
+      });
+    }
 
     const songs =
       Array.isArray(data.SONGCONTENTS)
         ? data.SONGCONTENTS
         : [];
 
+    console.log(
+      "Melon songs found:",
+      songs.length
+    );
+
     if (songs.length === 0) {
       return res.status(404).json({
         success: false,
-        error: "Melon에서 곡을 찾지 못했습니다.",
+        error: "Melon에서 검색 결과를 찾지 못했습니다.",
         query
       });
     }
-
-    /*
-      검색 결과를 제목 + 아티스트 기준으로 평가한다.
-    */
 
     let bestSong = null;
     let bestScore = -1;
 
     for (const song of songs) {
+      const melonTitle = clean(
+        song.SONGNAME ||
+        song.songName ||
+        ""
+      );
 
-      const melonTitle =
-        clean(song.SONGNAME);
-
-      const melonArtist =
-        clean(song.ARTISTNAME);
+      const melonArtist = clean(
+        song.ARTISTNAME ||
+        song.artistName ||
+        ""
+      );
 
       let score = 0;
 
-      /*
-        제목이 정확히 같으면 높은 점수
-      */
-
+      // 제목
       if (melonTitle === targetTitle) {
         score += 100;
       } else if (
@@ -123,10 +161,7 @@ export default async function handler(req, res) {
         score += 50;
       }
 
-      /*
-        아티스트가 정확히 같으면 높은 점수
-      */
-
+      // 가수
       if (
         targetArtist &&
         melonArtist === targetArtist
@@ -142,10 +177,7 @@ export default async function handler(req, res) {
         score += 50;
       }
 
-      /*
-        둘 다 어느 정도 일치하면 추가 점수
-      */
-
+      // 제목 + 가수 모두 정확히 일치
       if (
         melonTitle === targetTitle &&
         targetArtist &&
@@ -154,30 +186,41 @@ export default async function handler(req, res) {
         score += 200;
       }
 
+      console.log(
+        "Candidate:",
+        song.SONGNAME,
+        song.ARTISTNAME,
+        "score:",
+        score
+      );
+
       if (score > bestScore) {
         bestScore = score;
         bestSong = song;
       }
     }
 
-    /*
-      제목과 아티스트가 전혀 맞지 않는 검색 결과라면
-      잘못된 곡을 넘기지 않는다.
-    */
-
     if (!bestSong || bestScore < 50) {
       return res.status(404).json({
         success: false,
         error: "Melon에서 일치하는 곡을 찾지 못했습니다.",
-        query
+        query,
+        bestScore
       });
     }
 
     const songId =
       bestSong.SONGID ||
-      bestSong.songId;
+      bestSong.songId ||
+      bestSong.SONG_NO ||
+      bestSong.songNo;
 
     if (!songId) {
+      console.error(
+        "Song found but ID missing:",
+        bestSong
+      );
+
       return res.status(404).json({
         success: false,
         error: "Melon 곡 ID를 찾지 못했습니다.",
@@ -189,13 +232,18 @@ export default async function handler(req, res) {
       success: true,
       query,
       songId: String(songId),
-      title: bestSong.SONGNAME || "",
-      artist: bestSong.ARTISTNAME || "",
+      title:
+        bestSong.SONGNAME ||
+        bestSong.songName ||
+        "",
+      artist:
+        bestSong.ARTISTNAME ||
+        bestSong.artistName ||
+        "",
       score: bestScore
     });
 
   } catch (error) {
-
     console.error(
       "Melon search error:",
       error

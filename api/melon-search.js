@@ -16,45 +16,76 @@ export default async function handler(req, res) {
       });
     }
 
+    const clean = (text) => {
+      return String(text || "")
+        .toLowerCase()
+        .replace(/\([^)]*\)/g, "")
+        .replace(/\[[^\]]*\]/g, "")
+        .replace(/[^\w가-힣\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    };
+
+    const targetTitle = clean(title);
+    const targetArtist = clean(artist);
+
     const query = `${title} ${artist || ""}`.trim();
 
+    const callback =
+      "melonCallback" + Date.now();
+
     const searchUrl =
-      "https://www.melon.com/search/total/index.htm?q=" +
+      "https://www.melon.com/search/keyword/index.json" +
+      "?jscallback=" +
+      encodeURIComponent(callback) +
+      "&query=" +
       encodeURIComponent(query);
 
     const response = await fetch(searchUrl, {
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+        "Referer":
+          "https://www.melon.com/"
       }
     });
 
     if (!response.ok) {
-      throw new Error(`Melon 검색 실패: ${response.status}`);
+      throw new Error(
+        `Melon 검색 실패: ${response.status}`
+      );
     }
 
-    const html = await response.text();
+    const text = await response.text();
 
-    // Melon 곡 상세 페이지의 songId 찾기
-    const patterns = [
-      /songId=(\d+)/g,
-      /songNo=(\d+)/g,
-      /goSongDetail\(['"]?(\d+)/g
-    ];
+    /*
+      Melon 응답은 JSONP 형태일 수 있다.
 
-    const ids = [];
+      melonCallback123(...);
+    */
 
-    for (const pattern of patterns) {
-      let match;
+    let jsonText = text.trim();
 
-      while ((match = pattern.exec(html)) !== null) {
-        if (!ids.includes(match[1])) {
-          ids.push(match[1]);
-        }
+    const prefix = callback + "(";
+
+    if (jsonText.startsWith(prefix)) {
+      jsonText = jsonText.slice(prefix.length);
+
+      if (jsonText.endsWith(");")) {
+        jsonText = jsonText.slice(0, -2);
+      } else if (jsonText.endsWith(")")) {
+        jsonText = jsonText.slice(0, -1);
       }
     }
 
-    if (ids.length === 0) {
+    const data = JSON.parse(jsonText);
+
+    const songs =
+      Array.isArray(data.SONGCONTENTS)
+        ? data.SONGCONTENTS
+        : [];
+
+    if (songs.length === 0) {
       return res.status(404).json({
         success: false,
         error: "Melon에서 곡을 찾지 못했습니다.",
@@ -62,18 +93,118 @@ export default async function handler(req, res) {
       });
     }
 
+    /*
+      검색 결과를 제목 + 아티스트 기준으로 평가한다.
+    */
+
+    let bestSong = null;
+    let bestScore = -1;
+
+    for (const song of songs) {
+
+      const melonTitle =
+        clean(song.SONGNAME);
+
+      const melonArtist =
+        clean(song.ARTISTNAME);
+
+      let score = 0;
+
+      /*
+        제목이 정확히 같으면 높은 점수
+      */
+
+      if (melonTitle === targetTitle) {
+        score += 100;
+      } else if (
+        melonTitle.includes(targetTitle) ||
+        targetTitle.includes(melonTitle)
+      ) {
+        score += 50;
+      }
+
+      /*
+        아티스트가 정확히 같으면 높은 점수
+      */
+
+      if (
+        targetArtist &&
+        melonArtist === targetArtist
+      ) {
+        score += 100;
+      } else if (
+        targetArtist &&
+        (
+          melonArtist.includes(targetArtist) ||
+          targetArtist.includes(melonArtist)
+        )
+      ) {
+        score += 50;
+      }
+
+      /*
+        둘 다 어느 정도 일치하면 추가 점수
+      */
+
+      if (
+        melonTitle === targetTitle &&
+        targetArtist &&
+        melonArtist === targetArtist
+      ) {
+        score += 200;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestSong = song;
+      }
+    }
+
+    /*
+      제목과 아티스트가 전혀 맞지 않는 검색 결과라면
+      잘못된 곡을 넘기지 않는다.
+    */
+
+    if (!bestSong || bestScore < 50) {
+      return res.status(404).json({
+        success: false,
+        error: "Melon에서 일치하는 곡을 찾지 못했습니다.",
+        query
+      });
+    }
+
+    const songId =
+      bestSong.SONGID ||
+      bestSong.songId;
+
+    if (!songId) {
+      return res.status(404).json({
+        success: false,
+        error: "Melon 곡 ID를 찾지 못했습니다.",
+        query
+      });
+    }
+
     return res.status(200).json({
       success: true,
       query,
-      songId: ids[0]
+      songId: String(songId),
+      title: bestSong.SONGNAME || "",
+      artist: bestSong.ARTISTNAME || "",
+      score: bestScore
     });
 
   } catch (error) {
-    console.error("Melon search error:", error);
+
+    console.error(
+      "Melon search error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      error: "Melon 검색 중 오류가 발생했습니다."
+      error: "Melon 검색 중 오류가 발생했습니다.",
+      detail: error.message
     });
   }
 }

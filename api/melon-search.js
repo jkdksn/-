@@ -1,22 +1,21 @@
 export default async function handler(req, res) {
-  if (req.method !== "POST" && req.method !== "GET") {
+  if (req.method !== "GET" && req.method !== "POST") {
     return res.status(405).json({
       success: false,
-      error: "POST 또는 GET 요청만 허용됩니다."
+      error: "GET 또는 POST 요청만 허용됩니다."
     });
   }
 
   try {
-    let title = "";
-    let artist = "";
+    const title =
+      req.method === "POST"
+        ? req.body?.title || ""
+        : req.query?.title || "";
 
-    if (req.method === "POST") {
-      title = req.body?.title || "";
-      artist = req.body?.artist || "";
-    } else {
-      title = req.query?.title || "";
-      artist = req.query?.artist || "";
-    }
+    const artist =
+      req.method === "POST"
+        ? req.body?.artist || ""
+        : req.query?.artist || "";
 
     if (!title) {
       return res.status(400).json({
@@ -25,29 +24,23 @@ export default async function handler(req, res) {
       });
     }
 
+    // 비교용 정규화
     const normalize = (text) => {
       return String(text || "")
         .toLowerCase()
+        .replace(/&amp;/g, "&")
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&nbsp;/g, " ")
+        .replace(/<[^>]+>/g, " ")
         .replace(/\([^)]*\)/g, " ")
         .replace(/\[[^\]]*\]/g, " ")
         .replace(/\{[^}]*\}/g, " ")
         .replace(/feat\.?/gi, " ")
         .replace(/ft\.?/gi, " ")
         .replace(/with/gi, " ")
-        .replace(/&/g, " ")
-        .replace(/[^a-z0-9가-힣\s]/gi, " ")
-        .replace(/\s+/g, " ")
+        .replace(/[^a-z0-9가-힣]/gi, "")
         .trim();
-    };
-
-    const decodeHtml = (text) => {
-      return String(text || "")
-        .replace(/&amp;/g, "&")
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"')
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&nbsp;/g, " ");
     };
 
     const targetTitle = normalize(title);
@@ -62,9 +55,9 @@ export default async function handler(req, res) {
       redirect: "follow",
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Accept":
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language":
           "ko-KR,ko;q=0.9,en-US;q=0.8",
         "Referer":
@@ -83,163 +76,138 @@ export default async function handler(req, res) {
     }
 
     /*
-      곡 검색 결과의 각 <tr>을 추출
+      Melon 검색 결과에서
+      data-song-no="34588190"
+      같은 SID를 직접 찾는다.
     */
-    const rows = [
-      ...html.matchAll(/<tr\b[\s\S]*?<\/tr>/gi)
-    ];
+
+    const songIds = [
+      ...html.matchAll(/data-song-no=["'](\d{5,})["']/gi)
+    ].map((m) => m[1]);
+
+    const uniqueSongIds = [...new Set(songIds)];
+
+    /*
+      각 SID 주변의 HTML을 잘라서
+      제목 / 아티스트를 확인한다.
+    */
 
     const candidates = [];
 
-    for (const rowMatch of rows) {
-      const row = rowMatch[0];
+    for (const songId of uniqueSongIds) {
+      const index = html.indexOf(`data-song-no="${songId}"`);
 
-      /*
-        SID
-      */
-      const sidMatch =
-        row.match(/data-song-no=["'](\d{5,})["']/i) ||
-        row.match(/value=["'](\d{5,})["']/i) ||
-        row.match(/goSongDetail\(['"](\d{5,})['"]\)/i);
+      if (index === -1) continue;
 
-      if (!sidMatch) continue;
+      const start = Math.max(0, index - 5000);
+      const end = Math.min(html.length, index + 5000);
 
-      const songId = sidMatch[1];
+      const section = html.slice(start, end);
 
-      /*
-        곡 제목
-        Melon 검색 결과의 fc_gray 링크를 우선 사용
-      */
-      const titleMatches = [
-        ...row.matchAll(
-          /class=["'][^"']*fc_gray[^"']*["'][^>]*title=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
-        )
-      ];
-
+      // 제목
       let melonTitle = "";
 
-      if (titleMatches.length > 0) {
-        melonTitle =
-          titleMatches[0][1] ||
-          titleMatches[0][2];
-      }
+      const titlePatterns = [
+        /class=["'][^"']*fc_gray[^"']*["'][^>]*title=["']([^"']+)["']/i,
+        /title=["']([^"']+)["'][^>]*class=["'][^"']*fc_gray/i,
+        /goSongDetail\(['"]\d+['"]\)[\s\S]{0,1500}?title=["']([^"']+)["']/i
+      ];
 
-      /*
-        위 방식이 안 맞으면 title 속성에서 찾기
-      */
-      if (!melonTitle) {
-        const fallbackTitle =
-          row.match(
-            /title=["']([^"']+)["'][^>]*class=["'][^"']*fc_gray/i
-          );
+      for (const pattern of titlePatterns) {
+        const match = section.match(pattern);
 
-        if (fallbackTitle) {
-          melonTitle = fallbackTitle[1];
+        if (match && match[1]) {
+          melonTitle = match[1];
+          break;
         }
       }
 
-      /*
-        아티스트
-      */
-      const artistMatch =
-        row.match(
-          /class=["'][^"']*wrapArtistName[^"']*["'][\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i
-        );
-
-      let melonArtist =
-        artistMatch ? artistMatch[1] : "";
-
-      /*
-        HTML 태그 제거 및 디코딩
-      */
-      melonTitle = decodeHtml(
-        melonTitle
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
-      );
-
-      melonArtist = decodeHtml(
-        melonArtist
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
-      );
+      // HTML 태그 제거
+      melonTitle = melonTitle
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&nbsp;/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 
       if (!melonTitle) continue;
 
-      const normalizedTitle =
-        normalize(melonTitle);
+      // 아티스트
+      let melonArtist = "";
 
-      const normalizedArtist =
-        normalize(melonArtist);
+      const artistMatch = section.match(
+        /class=["'][^"']*wrapArtistName[^"']*["'][\s\S]{0,1500}?<a[^>]*>([\s\S]*?)<\/a>/i
+      );
+
+      if (artistMatch) {
+        melonArtist = artistMatch[1]
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      melonArtist = melonArtist
+        .replace(/&amp;/g, "&")
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&nbsp;/g, " ");
+
+      const normalizedTitle = normalize(melonTitle);
+      const normalizedArtist = normalize(melonArtist);
 
       /*
         제목 비교
+        예:
+        검정색 하트
+        검정색하트 (Feat. ...)
+        → 둘 다 검정색하트
       */
-      let titleMatch = false;
 
-      if (normalizedTitle === targetTitle) {
-        titleMatch = true;
-      }
+      const titleMatch =
+        normalizedTitle === targetTitle ||
+        normalizedTitle.includes(targetTitle) ||
+        targetTitle.includes(normalizedTitle);
 
-      if (
-        !titleMatch &&
-        targetTitle.length >= 2 &&
-        (
-          normalizedTitle.includes(targetTitle) ||
-          targetTitle.includes(normalizedTitle)
-        )
-      ) {
-        titleMatch = true;
-      }
+      if (!titleMatch) continue;
 
       /*
-        아티스트 비교
+        아티스트는 한글/영문 표기가 다를 수 있으므로
+        제목이 확실히 일치하면 우선 후보로 인정한다.
       */
-      let artistMatchBool = false;
+
+      let artistMatch = false;
 
       if (targetArtist && normalizedArtist) {
-        if (
-          normalizedArtist === targetArtist
-        ) {
-          artistMatchBool = true;
-        } else if (
+        artistMatch =
+          normalizedArtist === targetArtist ||
           normalizedArtist.includes(targetArtist) ||
-          targetArtist.includes(normalizedArtist)
-        ) {
-          artistMatchBool = true;
-        }
+          targetArtist.includes(normalizedArtist);
       }
 
-      if (titleMatch) {
-        candidates.push({
-          songId,
-          title: melonTitle,
-          artist: melonArtist,
-          artistMatch: artistMatchBool
-        });
-      }
+      candidates.push({
+        songId,
+        title: melonTitle,
+        artist: melonArtist,
+        artistMatch
+      });
     }
 
-    /*
-      제목 + 가수가 모두 맞는 곡을 최우선 선택
-    */
-    const selected =
-      candidates.find(
-        item => item.artistMatch
-      ) || candidates[0];
-
-    if (!selected) {
+    if (candidates.length === 0) {
       return res.status(404).json({
         success: false,
         error: "Melon에서 일치하는 곡을 찾지 못했습니다.",
         requestedTitle: title,
         requestedArtist: artist,
-        searchedRows: rows.length,
-        candidates
+        foundSongIds: uniqueSongIds.slice(0, 20)
       });
     }
+
+    // 아티스트까지 맞으면 최우선
+    const selected =
+      candidates.find((item) => item.artistMatch) ||
+      candidates[0];
 
     return res.status(200).json({
       success: true,

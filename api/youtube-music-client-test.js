@@ -43,14 +43,24 @@ export default async function handler(req, res) {
     if (!structured) {
       return res.status(200).json({
         success: true,
+
+        testVersion:
+          "STRUCTURED-20261017",
+
         videoId,
+
         found: false,
-        panelCount: panels.length
+
+        panelCount:
+          panels.length
       });
     }
 
+    const content =
+      structured.content;
+
     const items =
-      structured.content?.items || [];
+      content?.items || [];
 
     const output =
       items.map(
@@ -61,7 +71,9 @@ export default async function handler(req, res) {
             item?.constructor?.name || "",
 
           keys:
-            Object.keys(item || {}),
+            Object.keys(
+              item || {}
+            ),
 
           data:
             inspect(item)
@@ -70,6 +82,9 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
+
+      testVersion:
+        "STRUCTURED-20261017",
 
       videoId,
 
@@ -91,6 +106,9 @@ export default async function handler(req, res) {
 
     return res.status(500).json({
       success: false,
+
+      testVersion:
+        "STRUCTURED-20261017",
 
       error:
         error?.message ||
@@ -169,6 +187,7 @@ function inspect(value) {
 
           output[key] = {
             type: "array",
+
             length:
               child.length
           };
@@ -186,7 +205,10 @@ function inspect(value) {
             keys:
               Object.keys(
                 child
-              ).slice(0, 30)
+              ).slice(
+                0,
+                30
+              )
           };
         }
 

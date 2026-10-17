@@ -2,14 +2,15 @@ import { Innertube } from "youtubei.js";
 
 export default async function handler(req, res) {
   try {
-    const videoId =
-      req.query?.videoId || "";
+    const query =
+      req.query?.q || "";
 
-    if (!videoId) {
+    if (!query) {
       return res.status(400).json({
         success: false,
-        error: "videoId가 없습니다.",
-        example: "/api/youtube-music-test?videoId=유튜브영상ID"
+        error: "검색어가 없습니다.",
+        example:
+          "/api/youtube-music-test?q=RESCENE%20BLOOM"
       });
     }
 
@@ -19,76 +20,152 @@ export default async function handler(req, res) {
         location: "KR"
       });
 
-    const info =
-      await youtube.getInfo(
-        videoId,
-        "YTMUSIC"
+    const search =
+      await youtube.music.search(
+        query,
+        {
+          type: "song"
+        }
       );
 
-    const basic =
-      info?.basic_info || {};
+    const songs =
+      search?.songs?.contents || [];
 
-    const title =
-      basic.title || "";
+    const results =
+      songs.map((item) => ({
+        id:
+          item?.id || "",
 
-    const duration =
-      basic.duration || 0;
+        title:
+          getText(item?.title),
 
-    const author =
-      basic.author || "";
+        artist:
+          getArtist(item),
 
-    const channelId =
-      basic.channel_id || "";
+        album:
+          getText(item?.album),
 
-    let artists = [];
+        duration:
+          getDuration(item),
 
-    if (
-      Array.isArray(
-        basic.author
-      )
-    ) {
-      artists =
-        basic.author;
-    }
+        rawType:
+          item?.constructor?.name || ""
+      }));
 
     return res.status(200).json({
       success: true,
 
-      videoId,
+      query,
 
-      title,
+      resultCount:
+        results.length,
 
-      duration,
-
-      author,
-
-      channelId,
-
-      artists,
-
-      rawBasicInfo: {
-        id: basic.id || "",
-        title: basic.title || "",
-        author: basic.author || "",
-        duration: basic.duration || 0,
-        channelId: basic.channel_id || "",
-        category: basic.category || ""
-      }
+      results
     });
 
   } catch (error) {
 
     console.error(
-      "YouTube Music test error:",
+      "YouTube Music debug error:",
       error
     );
 
     return res.status(500).json({
       success: false,
+
       error:
         error?.message ||
-        "YouTube Music 정보를 가져오지 못했습니다."
-    });
+        "YouTube Music 검색 오류",
 
+      stack:
+        error?.stack || ""
+    });
   }
+}
+
+
+function getText(value) {
+
+  if (!value) {
+    return "";
+  }
+
+  if (
+    typeof value === "string"
+  ) {
+    return value;
+  }
+
+  if (
+    typeof value.text === "string"
+  ) {
+    return value.text;
+  }
+
+  try {
+    return String(value);
+  } catch {
+    return "";
+  }
+}
+
+
+function getArtist(item) {
+
+  if (!item) {
+    return "";
+  }
+
+  if (item.artist) {
+    const value =
+      getText(item.artist);
+
+    if (value) {
+      return value;
+    }
+  }
+
+  if (
+    Array.isArray(item.artists)
+  ) {
+    return item.artists
+      .map(
+        (artist) =>
+          getText(artist)
+      )
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (item.subtitle) {
+    return getText(
+      item.subtitle
+    );
+  }
+
+  return "";
+}
+
+
+function getDuration(item) {
+
+  if (!item) {
+    return 0;
+  }
+
+  if (
+    item.duration?.seconds
+  ) {
+    return Number(
+      item.duration.seconds
+    );
+  }
+
+  if (
+    typeof item.duration === "number"
+  ) {
+    return item.duration;
+  }
+
+  return 0;
 }

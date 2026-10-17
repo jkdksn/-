@@ -1,4 +1,7 @@
+import { Innertube } from "youtubei.js";
+
 export default async function handler(req, res) {
+
   if (req.method !== "POST") {
     return res.status(405).json({
       error: "POST 요청만 허용됩니다."
@@ -6,6 +9,7 @@ export default async function handler(req, res) {
   }
 
   try {
+
     const { url } = req.body || {};
 
     if (!url) {
@@ -14,7 +18,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const parsed = parseYouTubeURL(url);
+    const parsed =
+      parseYouTubeURL(url);
 
     if (!parsed) {
       return res.status(400).json({
@@ -22,67 +27,162 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!process.env.YOUTUBE_API_KEY) {
-      return res.status(500).json({
-        error: "YouTube API 키가 설정되지 않았습니다."
+    /*
+      YouTube Music 연결
+    */
+
+    const youtube =
+      await Innertube.create({
+        lang: "ko",
+        location: "KR"
       });
-    }
+
 
     let tracks = [];
 
+
+    /*
+      =========================
+      플레이리스트
+      =========================
+    */
+
     if (parsed.type === "playlist") {
-      tracks = await getPlaylistTracks(parsed.id);
-    } else {
-      tracks = await getVideoTracks(parsed.id);
+
+      tracks =
+        await getYouTubeMusicPlaylist(
+          youtube,
+          parsed.id
+        );
+
     }
+
+
+    /*
+      =========================
+      단일 영상
+      =========================
+    */
+
+    else {
+
+      tracks =
+        await getYouTubeMusicVideo(
+          youtube,
+          parsed.id
+        );
+
+    }
+
+
+    /*
+      빈 결과 방지
+    */
 
     if (!tracks.length) {
+
       return res.status(404).json({
         error:
-          "곡 목록을 찾지 못했습니다. 영상 설명란에 곡 목록이 있는지 확인해주세요."
+          "YouTube Music에서 곡 정보를 찾지 못했습니다."
       });
+
     }
 
+
     return res.status(200).json({
+
       success: true,
+
+      source:
+        "YouTube Music",
+
       tracks
+
     });
+
 
   } catch (error) {
 
-    console.error(error);
+    console.error(
+      "YouTube Music analyze error:",
+      error
+    );
 
     return res.status(500).json({
+
       error:
-        error.message ||
-        "YouTube 정보를 가져오는 중 오류가 발생했습니다."
+        error?.message ||
+        "YouTube Music 정보를 가져오는 중 오류가 발생했습니다."
+
     });
+
   }
+
 }
 
+
+/* =========================================================
+   YouTube URL 분석
+========================================================= */
 
 function parseYouTubeURL(value) {
 
   try {
 
-    const url = new URL(value);
+    const url =
+      new URL(value);
 
-    if (url.hostname === "youtu.be") {
+
+    /*
+      youtu.be
+    */
+
+    if (
+      url.hostname ===
+      "youtu.be"
+    ) {
+
+      const id =
+        url.pathname
+          .replace(/^\/+/, "")
+          .split("/")[0];
+
+      if (!id) {
+        return null;
+      }
 
       return {
         type: "video",
-        id: url.pathname.substring(1)
+        id
       };
 
     }
 
+
+    /*
+      YouTube / YouTube Music
+    */
+
     if (
-      url.hostname.includes("youtube.com") ||
-      url.hostname.includes("youtube-nocookie.com")
+      url.hostname.includes(
+        "youtube.com"
+      ) ||
+      url.hostname.includes(
+        "youtube-nocookie.com"
+      )
     ) {
 
-      const videoId = url.searchParams.get("v");
-      const playlistId = url.searchParams.get("list");
+      const videoId =
+        url.searchParams.get("v");
+
+      const playlistId =
+        url.searchParams.get("list");
+
+
+      /*
+        영상 + playlist 링크라면
+        우선 영상 자체를 분석
+      */
 
       if (videoId) {
 
@@ -93,6 +193,7 @@ function parseYouTubeURL(value) {
 
       }
 
+
       if (playlistId) {
 
         return {
@@ -102,18 +203,8 @@ function parseYouTubeURL(value) {
 
       }
 
-      if (
-        url.pathname === "/playlist" &&
-        playlistId
-      ) {
-
-        return {
-          type: "playlist",
-          id: playlistId
-        };
-
-      }
     }
+
 
     return null;
 
@@ -122,255 +213,354 @@ function parseYouTubeURL(value) {
     return null;
 
   }
+
 }
 
 
-async function youtubeAPI(endpoint) {
+/* =========================================================
+   YouTube Music 단일 영상
+========================================================= */
 
-  const key =
-    process.env.YOUTUBE_API_KEY;
+async function getYouTubeMusicVideo(
+  youtube,
+  videoId
+) {
 
-  const separator =
-    endpoint.includes("?")
-      ? "&"
-      : "?";
+  /*
+    YTMUSIC으로 영상 정보 요청
+  */
 
-  const response = await fetch(
-    `https://www.googleapis.com/youtube/v3/${endpoint}${separator}key=${key}`
-  );
-
-  const data =
-    await response.json();
-
-  if (!response.ok) {
-
-    throw new Error(
-      data?.error?.message ||
-      "YouTube API 오류"
+  const info =
+    await youtube.getInfo(
+      videoId,
+      "YTMUSIC"
     );
 
+
+  const basic =
+    info?.basic_info || {};
+
+
+  /*
+    YouTube Music의
+    구조화된 음악 정보
+
+    YouTube Music은 일부 음악 영상에서
+    song / artist / album / videoId 등을
+    music_tracks로 제공한다.
+  */
+
+  const musicTracks =
+    Array.isArray(info?.music_tracks)
+      ? info.music_tracks
+      : [];
+
+
+  if (
+    musicTracks.length > 0
+  ) {
+
+    const tracks =
+      musicTracks
+        .map(track => {
+
+          const title =
+            cleanText(
+              track?.song || ""
+            );
+
+          const artist =
+            cleanText(
+              track?.artist || ""
+            );
+
+          const album =
+            cleanText(
+              track?.album || ""
+            );
+
+
+          if (!title) {
+            return null;
+          }
+
+
+          return {
+
+            title,
+
+            artist,
+
+            album,
+
+            duration:
+              Number(
+                basic.duration || 0
+              ),
+
+            youtubeVideoId:
+              track?.videoId ||
+              videoId,
+
+            youtubeChannelId:
+              track?.channelId ||
+              basic.channel_id ||
+              "",
+
+            source:
+              "YouTube Music"
+
+          };
+
+        })
+        .filter(Boolean);
+
+
+    if (tracks.length > 0) {
+
+      return tracks;
+
+    }
+
   }
 
-  return data;
-}
 
+  /*
+    music_tracks가 없는 경우
+    YTMUSIC 기본 정보에서
+    제목/채널을 보조적으로 사용한다.
 
-async function getVideoTracks(videoId) {
+    단순히 모든 영상을 음악이라고
+    확정하지 않기 위해
+    category가 Music인지 확인한다.
+  */
 
-  const data = await youtubeAPI(
-    `videos?part=snippet&id=${encodeURIComponent(videoId)}`
-  );
-
-  if (!data.items || !data.items.length) {
-    throw new Error(
-      "YouTube 영상을 찾을 수 없습니다."
+  const title =
+    cleanVideoTitle(
+      basic.title || ""
     );
-  }
 
-  const video =
-    data.items[0];
+  const author =
+    cleanText(
+      basic.author || ""
+    );
 
-  const snippet =
-    video.snippet;
+  const duration =
+    Number(
+      basic.duration || 0
+    );
 
-  const description =
-    snippet.description || "";
 
-  const tracks =
-    parseTrackList(description);
+  if (
+    !title ||
+    !author
+  ) {
 
-  if (!tracks.length) {
-
-    return [
-      {
-        title: cleanTitle(
-          snippet.title
-        ),
-        artist:
-          snippet.channelTitle || ""
-      }
-    ];
+    return [];
 
   }
 
-  return tracks;
+
+  /*
+    Music 카테고리가 아니면
+    일반 영상 제목을 곡으로
+    억지로 사용하지 않는다.
+  */
+
+  if (
+    basic.category &&
+    String(basic.category)
+      .toLowerCase() !==
+      "music"
+  ) {
+
+    return [];
+
+  }
+
+
+  return [
+
+    {
+
+      title,
+
+      artist: author,
+
+      album: "",
+
+      duration,
+
+      youtubeVideoId:
+        videoId,
+
+      youtubeChannelId:
+        basic.channel_id || "",
+
+      source:
+        "YouTube Music"
+
+    }
+
+  ];
+
 }
 
 
-async function getPlaylistTracks(
+/* =========================================================
+   YouTube Music 플레이리스트
+========================================================= */
+
+async function getYouTubeMusicPlaylist(
+  youtube,
   playlistId
 ) {
 
-  const tracks = [];
-
-  let pageToken = "";
-
-  while (true) {
-
-    let endpoint =
-      `playlistItems?part=snippet&maxResults=50&playlistId=${encodeURIComponent(playlistId)}`;
-
-    if (pageToken) {
-
-      endpoint +=
-        `&pageToken=${encodeURIComponent(pageToken)}`;
-
-    }
-
-    const data =
-      await youtubeAPI(endpoint);
-
-    for (const item of data.items || []) {
-
-      const title =
-        item.snippet?.title || "";
-
-      if (
-        !title ||
-        title === "Deleted video" ||
-        title === "Private video"
-      ) {
-        continue;
+  const playlist =
+    await youtube.getPlaylist(
+      playlistId,
+      {
+        client:
+          "YTMUSIC"
       }
-
-      const parsed =
-        parseSongTitle(title);
-
-      tracks.push(parsed);
-
-    }
-
-    if (!data.nextPageToken) {
-      break;
-    }
-
-    pageToken =
-      data.nextPageToken;
-
-  }
-
-  return tracks;
-}
-
-
-function parseTrackList(description) {
-
-  const lines =
-    description.split(/\r?\n/);
-
-  const tracks = [];
-
-  for (const line of lines) {
-
-    const match =
-      line.match(
-        /^\s*(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+?)\s*$/
-      );
-
-    if (!match) {
-      continue;
-    }
-
-    const text =
-      match[2]
-        .replace(/https?:\/\/\S+/g, "")
-        .trim();
-
-    const song =
-      parseSongTitle(text);
-
-    if (
-      song.title &&
-      (
-        song.artist ||
-        text.includes("-") ||
-        text.includes("–") ||
-        text.includes("—") ||
-        text.includes("|")
-      )
-    ) {
-
-      tracks.push({
-        ...song,
-        timestamp: match[1]
-      });
-
-    }
-
-  }
-
-  return tracks;
-}
-
-
-function parseSongTitle(text) {
-
-  text =
-    text
-      .replace(/^\d+\.\s*/, "")
-      .replace(/^\[[^\]]+\]\s*/, "")
-      .trim();
-
-  let match =
-    text.match(
-      /^(.+?)\s+[-–—]\s+(.+)$/
     );
 
-  if (match) {
 
-    return {
-      title: cleanTitle(match[1]),
-      artist: cleanArtist(match[2])
-    };
+  const items =
+    Array.isArray(
+      playlist?.items
+    )
+      ? playlist.items
+      : [];
+
+
+  const tracks = [];
+
+
+  for (
+    const item of items
+  ) {
+
+    const videoId =
+      item?.id || "";
+
+
+    const title =
+      cleanText(
+        item?.title || ""
+      );
+
+
+    const artist =
+      cleanText(
+        item?.author || ""
+      );
+
+
+    const durationObject =
+      item?.duration || {};
+
+
+    const duration =
+      Number(
+        durationObject?.seconds ||
+        0
+      );
+
+
+    /*
+      삭제/비공개 등
+      불완전한 항목 제외
+    */
+
+    if (
+      !videoId ||
+      !title ||
+      title ===
+        "Deleted video" ||
+      title ===
+        "Private video"
+    ) {
+
+      continue;
+
+    }
+
+
+    tracks.push({
+
+      title,
+
+      artist,
+
+      album: "",
+
+      duration,
+
+      youtubeVideoId:
+        videoId,
+
+      youtubeChannelId:
+        "",
+
+      source:
+        "YouTube Music"
+
+    });
 
   }
 
-  if (text.includes("|")) {
 
-    const parts =
-      text.split("|");
+  return tracks;
 
-    return {
-      title:
-        cleanTitle(parts[0]),
-      artist:
-        cleanArtist(
-          parts.slice(1).join("|")
-        )
-    };
-
-  }
-
-  return {
-    title: cleanTitle(text),
-    artist: ""
-  };
 }
 
 
-function cleanTitle(text) {
+/* =========================================================
+   텍스트 정리
+========================================================= */
 
-  return text
+function cleanText(
+  text
+) {
+
+  return String(
+    text || ""
+  )
     .replace(
-      /\s*\((official|official audio|lyrics?|가사)[^)]*\)/gi,
-      ""
+      /<[^>]+>/g,
+      " "
     )
     .replace(
-      /\s*\[[^\]]*(official|lyrics?|가사)[^\]]*\]/gi,
-      ""
+      /\s+/g,
+      " "
     )
     .trim();
 
 }
 
 
-function cleanArtist(text) {
+/* =========================================================
+   일반 영상 제목에서
+   불필요한 표시 제거
+========================================================= */
 
-  return text
+function cleanVideoTitle(
+  text
+) {
+
+  return cleanText(text)
+
     .replace(
-      /\s*\((official|official audio|lyrics?|가사)[^)]*\)/gi,
+      /\s*\((?:official|official video|official audio|audio|lyrics?|lyric video|가사|뮤직비디오)[^)]*\)/gi,
       ""
     )
+
+    .replace(
+      /\s*\[(?:official|official video|official audio|audio|lyrics?|lyric video|가사|뮤직비디오)[^\]]*\]/gi,
+      ""
+    )
+
     .trim();
 
 }

@@ -1,212 +1,478 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
+
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#00cd3c">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <meta
+    name="theme-color"
+    content="#00cd3c"
+  >
 
   <title>YouTube → Melon</title>
 
   <style>
+
     * {
       box-sizing: border-box;
     }
 
     body {
+
       margin: 0;
+
       background: #f7f7f7;
+
       color: #171717;
+
       font-family:
         -apple-system,
         BlinkMacSystemFont,
         "Apple SD Gothic Neo",
         "Noto Sans KR",
         sans-serif;
+
     }
 
     .wrap {
-      width: min(680px, calc(100% - 32px));
+
+      width:
+        min(680px, calc(100% - 32px));
+
       margin: auto;
+
       padding: 60px 0;
+
     }
 
     .logo {
+
       width: 55px;
       height: 55px;
+
       border-radius: 17px;
+
       background: #00cd3c;
+
       display: flex;
+
       align-items: center;
       justify-content: center;
+
       font-size: 29px;
+
       margin-bottom: 24px;
+
     }
 
     h1 {
+
       margin: 0;
+
       font-size: 34px;
+
       letter-spacing: -1.5px;
+
     }
 
     .sub {
+
       margin-top: 12px;
+
       color: #777;
+
       line-height: 1.6;
+
     }
 
     .box {
+
       margin-top: 30px;
+
       background: white;
+
       border: 1px solid #e5e5e5;
+
       border-radius: 18px;
+
       padding: 8px;
+
       display: flex;
+
       gap: 8px;
-      box-shadow: 0 8px 30px rgba(0,0,0,.04);
+
+      box-shadow:
+        0 8px 30px rgba(0,0,0,.04);
+
     }
 
     input {
+
       flex: 1;
+
       min-width: 0;
+
       border: 0;
+
       outline: 0;
+
       padding: 15px;
+
       font-size: 15px;
+
       background: transparent;
+
     }
 
     button {
+
       border: 0;
+
       cursor: pointer;
+
       font-weight: 700;
+
     }
 
     .mainBtn {
+
       background: #171717;
+
       color: white;
+
       border-radius: 13px;
+
       padding: 0 20px;
+
     }
 
     .mainBtn:disabled {
+
       opacity: .5;
+
     }
 
     .status {
+
       margin-top: 18px;
+
       color: #777;
+
       display: none;
+
     }
 
     .error {
+
       margin-top: 18px;
+
       padding: 15px;
+
       border-radius: 12px;
+
       background: #fff0f0;
+
       color: #d33;
+
       display: none;
+
     }
 
     .result {
+
       margin-top: 35px;
+
       display: none;
+
     }
 
     .result h2 {
+
       margin-bottom: 5px;
+
     }
 
     .count {
+
       color: #888;
+
       margin-bottom: 15px;
+
+    }
+
+    .controls {
+
+      display: flex;
+
+      gap: 8px;
+
+      margin-bottom: 12px;
+
+    }
+
+    .controlBtn {
+
+      background: white;
+
+      border: 1px solid #ddd;
+
+      border-radius: 10px;
+
+      padding: 9px 13px;
+
+      font-size: 13px;
+
     }
 
     .tracks {
+
       background: white;
+
       border-radius: 18px;
+
       border: 1px solid #e5e5e5;
+
       overflow: hidden;
+
     }
 
     .track {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 13px;
+
+      padding: 15px;
+
       border-bottom: 1px solid #eee;
+
     }
 
     .track:last-child {
+
       border-bottom: 0;
+
+    }
+
+    .trackHeader {
+
+      display: flex;
+
+      align-items: flex-start;
+
+      gap: 12px;
+
+    }
+
+    .check {
+
+      width: 20px;
+      height: 20px;
+
+      margin-top: 2px;
+
+      accent-color: #00cd3c;
+
+      flex-shrink: 0;
+
+    }
+
+    .check:disabled {
+
+      opacity: .35;
+
     }
 
     .num {
+
       width: 28px;
+
       color: #aaa;
+
       font-size: 12px;
+
+      padding-top: 3px;
+
+      flex-shrink: 0;
+
     }
 
     .info {
+
       flex: 1;
+
       min-width: 0;
+
     }
 
     .title {
+
       font-weight: 700;
+
+      word-break: break-word;
+
     }
 
     .artist {
+
       color: #888;
+
       font-size: 13px;
+
       margin-top: 3px;
+
     }
 
-    .melon {
+    .melonInfo {
+
+      margin-top: 11px;
+
+      padding: 10px 12px;
+
+      border-radius: 10px;
+
+      background: #f7f7f7;
+
+      font-size: 12px;
+
+      line-height: 1.6;
+
+    }
+
+    .melonInfo.success {
+
+      background: #effbf2;
+
+      color: #168b45;
+
+    }
+
+    .melonInfo.loading {
+
+      color: #777;
+
+    }
+
+    .melonInfo.error {
+
+      display: block;
+
+      background: #fff0f0;
+
+      color: #d33;
+
+      margin-top: 11px;
+
+      padding: 10px 12px;
+
+      border-radius: 10px;
+
+    }
+
+    .melonLine {
+
+      display: flex;
+
+      flex-wrap: wrap;
+
+      gap: 5px 14px;
+
+    }
+
+    .sid {
+
+      font-weight: 600;
+
+    }
+
+    .duration {
+
+      font-weight: 600;
+
+    }
+
+    .melonButton {
+
       margin-top: 16px;
+
       width: 100%;
+
       padding: 17px;
+
       border-radius: 15px;
+
       background: #00cd3c;
+
       color: white;
+
       font-size: 16px;
+
     }
 
-    .melon:disabled {
+    .melonButton:disabled {
+
       opacity: .6;
+
     }
 
     @media(max-width:600px) {
+
       .wrap {
+
         padding-top: 40px;
+
       }
 
       h1 {
+
         font-size: 29px;
+
       }
 
       .box {
+
         flex-direction: column;
+
       }
 
       .mainBtn {
+
         height: 50px;
+
       }
+
     }
+
   </style>
+
 </head>
+
 
 <body>
 
+
 <div class="wrap">
 
-  <div class="logo">🍈</div>
 
-  <h1>YouTube → Melon</h1>
+  <div class="logo">
+    🍈
+  </div>
+
+
+  <h1>
+    YouTube → Melon
+  </h1>
+
 
   <div class="sub">
+
     YouTube 음악 모음 영상이나 플레이리스트의
     링크를 입력하면 곡 목록을 자동으로 추출합니다.
+
   </div>
+
 
   <div class="box">
 
@@ -217,6 +483,7 @@
     >
 
     <button
+      id="analyzeButton"
       class="mainBtn"
       onclick="analyze()"
     >
@@ -225,41 +492,94 @@
 
   </div>
 
-  <div id="status" class="status">
+
+  <div
+    id="status"
+    class="status"
+  >
     YouTube 영상을 분석하고 있습니다...
   </div>
 
-  <div id="error" class="error"></div>
 
-  <div id="result" class="result">
+  <div
+    id="error"
+    class="error"
+  ></div>
 
-    <h2>추출된 곡</h2>
 
-    <div id="count" class="count"></div>
+  <div
+    id="result"
+    class="result"
+  >
 
-    <div id="tracks" class="tracks"></div>
+    <h2>
+      추출된 곡
+    </h2>
+
+
+    <div
+      id="count"
+      class="count"
+    ></div>
+
+
+    <div class="controls">
+
+      <button
+        class="controlBtn"
+        onclick="selectAllTracks()"
+      >
+        전체 선택
+      </button>
+
+      <button
+        class="controlBtn"
+        onclick="deselectAllTracks()"
+      >
+        전체 해제
+      </button>
+
+    </div>
+
+
+    <div
+      id="tracks"
+      class="tracks"
+    ></div>
+
 
     <button
       id="melonButton"
-      class="melon"
+      class="melonButton"
       onclick="openMelon()"
     >
-      🍈 멜론에서 전체 재생
+      🍈 선택한 곡 멜론에서 듣기
     </button>
+
 
   </div>
 
+
 </div>
 
+
 <script>
+
 
 let tracks = [];
 
 
+/* =========================
+   YouTube 분석
+========================= */
+
 async function analyze() {
 
   const url =
-    document.getElementById("url").value.trim();
+    document
+      .getElementById("url")
+      .value
+      .trim();
 
   const status =
     document.getElementById("status");
@@ -270,323 +590,720 @@ async function analyze() {
   const result =
     document.getElementById("result");
 
+  const button =
+    document.getElementById("analyzeButton");
+
+
   if (!url) {
-    showError("YouTube 링크를 입력해주세요.");
+
+    showError(
+      "YouTube 링크를 입력해주세요."
+    );
+
     return;
+
   }
+
 
   if (
     !url.includes("youtube.com") &&
     !url.includes("youtu.be")
   ) {
-    showError("YouTube 링크만 입력해주세요.");
+
+    showError(
+      "YouTube 링크만 입력해주세요."
+    );
+
     return;
+
   }
 
-  error.style.display = "none";
-  result.style.display = "none";
-  status.style.display = "block";
+
+  error.style.display =
+    "none";
+
+  result.style.display =
+    "none";
+
+  status.style.display =
+    "block";
+
+  button.disabled =
+    true;
+
 
   try {
 
     const response =
-      await fetch("/api/analyze", {
+      await fetch(
+        "/api/analyze",
+        {
 
-        method: "POST",
+          method: "POST",
 
-        headers: {
-          "Content-Type": "application/json"
-        },
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
 
-        body: JSON.stringify({
-          url: url
-        })
+          body: JSON.stringify({
+            url: url
+          })
 
-      });
+        }
+      );
+
 
     const data =
       await response.json();
 
+
     if (!response.ok) {
+
       throw new Error(
-        data.error || "분석에 실패했습니다."
+        data.error ||
+        "분석에 실패했습니다."
       );
+
     }
 
-    tracks = data.tracks || [];
 
-    if (tracks.length === 0) {
+    tracks =
+      (data.tracks || [])
+        .map(track => ({
+
+          title:
+            track.title || "",
+
+          artist:
+            track.artist || "",
+
+          timestamp:
+            track.timestamp || "",
+
+          songId:
+            "",
+
+          melonTitle:
+            "",
+
+          melonArtist:
+            "",
+
+          duration:
+            "",
+
+          melonStatus:
+            "loading",
+
+          selected:
+            true
+
+        }));
+
+
+    if (
+      tracks.length === 0
+    ) {
+
       throw new Error(
         "추출된 곡이 없습니다."
       );
+
     }
+
 
     displayTracks();
 
-    result.style.display = "block";
+
+    result.style.display =
+      "block";
+
+
+    /*
+      YouTube 추출이 끝나면
+      각 곡의 Melon SID를 찾는다.
+    */
+
+    findAllMelonSongs();
+
 
   } catch (e) {
 
     showError(
-      e.message || "오류가 발생했습니다."
+      e.message ||
+      "오류가 발생했습니다."
     );
 
   } finally {
 
-    status.style.display = "none";
+    status.style.display =
+      "none";
+
+    button.disabled =
+      false;
 
   }
+
 }
 
+
+/* =========================
+   곡 목록 표시
+========================= */
 
 function displayTracks() {
 
   const container =
     document.getElementById("tracks");
 
-  const count =
-    document.getElementById("count");
+  container.innerHTML =
+    "";
 
-  container.innerHTML = "";
 
-  count.textContent =
-    `총 ${tracks.length}곡`;
+  updateCount();
 
-  tracks.forEach((track, index) => {
 
-    const div =
-      document.createElement("div");
+  tracks.forEach(
+    (track, index) => {
 
-    div.className = "track";
+      const div =
+        document.createElement("div");
 
-    div.innerHTML = `
 
-      <div class="num">
-        ${String(index + 1).padStart(2,"0")}
-      </div>
+      div.className =
+        "track";
 
-      <div class="info">
 
-        <div class="title">
-          ${escapeHTML(track.title)}
+      div.innerHTML = `
+
+        <div class="trackHeader">
+
+          <input
+            type="checkbox"
+            class="check trackCheck"
+            id="check-${index}"
+            ${track.selected ? "checked" : ""}
+            onchange="toggleTrack(${index})"
+          >
+
+          <div class="num">
+            ${String(index + 1).padStart(2, "0")}
+          </div>
+
+          <div class="info">
+
+            <div class="title">
+              ${escapeHTML(track.title)}
+            </div>
+
+            <div class="artist">
+              ${escapeHTML(
+                track.artist ||
+                "아티스트 미확인"
+              )}
+            </div>
+
+            <div
+              id="melonInfo-${index}"
+              class="melonInfo loading"
+            >
+              🍈 Melon SID를 찾는 중...
+            </div>
+
+          </div>
+
         </div>
 
-        <div class="artist">
-          ${escapeHTML(track.artist || "아티스트 미확인")}
-        </div>
+      `;
+
+
+      container.appendChild(div);
+
+    }
+  );
+
+}
+
+
+/* =========================
+   Melon 전체 검색
+========================= */
+
+async function findAllMelonSongs() {
+
+  let completed =
+    0;
+
+
+  for (
+    let i = 0;
+    i < tracks.length;
+    i++
+  ) {
+
+    await findMelonSong(
+      tracks[i],
+      i
+    );
+
+
+    completed++;
+
+
+    const found =
+      tracks.filter(
+        track =>
+          track.melonStatus ===
+          "success"
+      ).length;
+
+
+    document
+      .getElementById("count")
+      .textContent =
+        `총 ${tracks.length}곡 · Melon 확인 ${found}/${completed}곡`;
+
+
+  }
+
+
+  updateCount();
+
+}
+
+
+/* =========================
+   Melon 곡 하나 검색
+========================= */
+
+async function findMelonSong(
+  track,
+  index
+) {
+
+  const info =
+    document.getElementById(
+      `melonInfo-${index}`
+    );
+
+
+  try {
+
+    const response =
+      await fetch(
+        "/api/melon-search",
+        {
+
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+
+            title:
+              track.title,
+
+            artist:
+              track.artist || ""
+
+          })
+
+        }
+      );
+
+
+    const data =
+      await response.json();
+
+
+    if (
+      !response.ok ||
+      !data.success ||
+      !data.songId
+    ) {
+
+      throw new Error(
+        data.error ||
+        "Melon 곡을 찾지 못했습니다."
+      );
+
+    }
+
+
+    track.songId =
+      String(data.songId);
+
+    track.melonTitle =
+      data.title || "";
+
+    track.melonArtist =
+      data.artist || "";
+
+    track.duration =
+      data.duration || "";
+
+    track.melonStatus =
+      "success";
+
+
+    info.className =
+      "melonInfo success";
+
+
+    info.innerHTML = `
+
+      <div class="melonLine">
+
+        <span class="sid">
+          ✓ SID ${escapeHTML(
+            track.songId
+          )}
+        </span>
+
+        ${
+          track.duration
+            ? `
+              <span class="duration">
+                ⏱ ${escapeHTML(
+                  track.duration
+                )}
+              </span>
+            `
+            : `
+              <span>
+                ⏱ 재생시간 확인 안 됨
+              </span>
+            `
+        }
 
       </div>
 
     `;
 
-    container.appendChild(div);
 
-  });
-}
+  } catch (error) {
 
-
-function escapeHTML(text) {
-
-  return String(text)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-
-}
-
-
-function showError(message) {
-
-  const error =
-    document.getElementById("error");
-
-  error.textContent = message;
-
-  error.style.display = "block";
-
-}
-
-
-/*
-  YouTube에서 추출한 곡을
-  Melon에서 검색하고 Melon songId를 가져온다.
-*/
-async function findMelonSong(track) {
-
-  const response =
-    await fetch("/api/melon-search", {
-
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json"
-      },
-
-      body: JSON.stringify({
-        title: track.title,
-        artist: track.artist || ""
-      })
-
-    });
-
-  const data =
-    await response.json();
-
-  if (!response.ok || !data.success || !data.songId) {
-    throw new Error(
-      data.error || "Melon 곡을 찾지 못했습니다."
-    );
-  }
-
-  return data.songId;
-}
-
-
-/*
-  전체 곡을 Melon에서 찾은 뒤
-  iPhone Melon 앱으로 넘긴다.
-*/
-async function openMelon() {
-
-  if (!tracks || tracks.length === 0) {
-
-    alert(
-      "먼저 YouTube 곡 목록을 추출해주세요."
+    console.error(
+      "Melon 검색 실패:",
+      track,
+      error
     );
 
-    return;
+
+    track.songId =
+      "";
+
+    track.melonStatus =
+      "error";
+
+    track.selected =
+      false;
+
+
+    info.className =
+      "melonInfo error";
+
+
+    info.textContent =
+      "✕ Melon에서 정확히 일치하는 곡을 찾지 못했습니다.";
+
+
+    const checkbox =
+      document.getElementById(
+        `check-${index}`
+      );
+
+
+    if (checkbox) {
+
+      checkbox.checked =
+        false;
+
+      checkbox.disabled =
+        true;
+
+    }
+
   }
 
-  const button =
-    document.getElementById("melonButton");
 
-  button.disabled = true;
+  updateCount();
 
-  button.textContent =
-    "🍈 멜론에서 곡을 찾는 중...";
+}
 
 
-  const melonIds = [];
+/* =========================
+   곡 선택 / 해제
+========================= */
 
-  const failed = [];
+function toggleTrack(index) {
+
+  const checkbox =
+    document.getElementById(
+      `check-${index}`
+    );
 
 
-  try {
+  tracks[index].selected =
+    checkbox.checked;
 
-    /*
-      곡을 하나씩 검색한다.
-      동시에 너무 많은 요청을 보내지 않도록
-      순차적으로 처리한다.
-    */
+  updateCount();
 
-    for (let i = 0; i < tracks.length; i++) {
+}
 
-      const track = tracks[i];
 
-      button.textContent =
-        `🍈 멜론 곡 찾는 중... ${i + 1}/${tracks.length}`;
+/* =========================
+   전체 선택
+========================= */
 
-      try {
+function selectAllTracks() {
 
-        const songId =
-          await findMelonSong(track);
+  tracks.forEach(
+    (track, index) => {
 
-        if (songId) {
+      if (
+        track.melonStatus ===
+        "success"
+      ) {
 
-          melonIds.push(songId);
+        track.selected =
+          true;
 
-        } else {
 
-          failed.push(track);
+        const checkbox =
+          document.getElementById(
+            `check-${index}`
+          );
+
+
+        if (checkbox) {
+
+          checkbox.checked =
+            true;
 
         }
-
-      } catch (error) {
-
-        console.error(
-          "Melon 검색 실패:",
-          track,
-          error
-        );
-
-        failed.push(track);
 
       }
 
     }
+  );
 
 
-    /*
-      아무 곡도 찾지 못한 경우
-    */
+  updateCount();
 
-    if (melonIds.length === 0) {
-
-      alert(
-        "Melon에서 일치하는 곡을 찾지 못했습니다."
-      );
-
-      return;
-    }
+}
 
 
-    /*
-      iPhone Melon 앱 딥링크 생성
-    */
+/* =========================
+   전체 해제
+========================= */
 
-    const melonUrl =
-      "meloniphone://play/?ctype=1&menuid=0&cid=" +
-      melonIds.join(",");
+function deselectAllTracks() {
 
+  tracks.forEach(
+    (track, index) => {
 
-    /*
-      Melon 앱 실행
-    */
-
-    window.location.href =
-      melonUrl;
+      track.selected =
+        false;
 
 
-    /*
-      찾지 못한 곡이 있다면
-      잠시 후 알려준다.
-    */
-
-    if (failed.length > 0) {
-
-      setTimeout(() => {
-
-        alert(
-          `Melon에서 ${melonIds.length}곡을 찾았습니다.\n` +
-          `${failed.length}곡은 찾지 못했습니다.`
+      const checkbox =
+        document.getElementById(
+          `check-${index}`
         );
 
-      }, 1500);
+
+      if (checkbox) {
+
+        checkbox.checked =
+          false;
+
+      }
 
     }
+  );
 
-  } catch (error) {
 
-    console.error(error);
+  updateCount();
+
+}
+
+
+/* =========================
+   숫자 표시
+========================= */
+
+function updateCount() {
+
+  const count =
+    document.getElementById("count");
+
+
+  if (!count) {
+    return;
+  }
+
+
+  const found =
+    tracks.filter(
+      track =>
+        track.melonStatus ===
+        "success"
+    ).length;
+
+
+  const selected =
+    tracks.filter(
+      track =>
+        track.selected &&
+        track.melonStatus ===
+        "success"
+    ).length;
+
+
+  count.textContent =
+    `총 ${tracks.length}곡 · Melon 확인 ${found}곡 · 선택 ${selected}곡`;
+
+}
+
+
+/* =========================
+   Melon 실행
+========================= */
+
+function openMelon() {
+
+  const selectedIds =
+    tracks
+      .filter(
+        track =>
+          track.selected &&
+          track.songId &&
+          track.melonStatus ===
+          "success"
+      )
+      .map(
+        track =>
+          track.songId
+      );
+
+
+  if (
+    selectedIds.length === 0
+  ) {
 
     alert(
-      "Melon 연결 중 오류가 발생했습니다."
+      "Melon에서 들을 곡을 하나 이상 선택해주세요."
     );
 
-  } finally {
-
-    button.disabled = false;
-
-    button.textContent =
-      "🍈 멜론에서 전체 재생";
+    return;
 
   }
 
+
+  const button =
+    document.getElementById(
+      "melonButton"
+    );
+
+
+  button.disabled =
+    true;
+
+
+  button.textContent =
+    "🍈 멜론을 여는 중...";
+
+
+  /*
+    현재 정상적으로 작동하고 있는
+    Melon iPhone 딥링크 그대로 사용
+  */
+
+  const melonUrl =
+    "meloniphone://play/?ctype=1&menuid=0&cid=" +
+    selectedIds.join(",");
+
+
+  window.location.href =
+    melonUrl;
+
+
+  setTimeout(
+    () => {
+
+      button.disabled =
+        false;
+
+      button.textContent =
+        "🍈 선택한 곡 멜론에서 듣기";
+
+    },
+    2000
+  );
+
 }
+
+
+/* =========================
+   에러
+========================= */
+
+function showError(message) {
+
+  const error =
+    document.getElementById(
+      "error"
+    );
+
+
+  error.textContent =
+    message;
+
+
+  error.style.display =
+    "block";
+
+}
+
+
+/* =========================
+   HTML 이스케이프
+========================= */
+
+function escapeHTML(text) {
+
+  return String(text || "")
+    .replaceAll(
+      "&",
+      "&amp;"
+    )
+    .replaceAll(
+      "<",
+      "&lt;"
+    )
+    .replaceAll(
+      ">",
+      "&gt;"
+    )
+    .replaceAll(
+      '"',
+      "&quot;"
+    )
+    .replaceAll(
+      "'",
+      "&#039;"
+    );
+
+}
+
 
 </script>
 
 </body>
+
 </html>

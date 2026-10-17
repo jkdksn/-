@@ -49,11 +49,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const content =
-      structured.content;
-
     const items =
-      content?.items || [];
+      structured.content?.items || [];
 
     const output =
       items.map(
@@ -64,9 +61,7 @@ export default async function handler(req, res) {
             item?.constructor?.name || "",
 
           keys:
-            Object.keys(
-              item || {}
-            ),
+            Object.keys(item || {}),
 
           data:
             inspect(item)

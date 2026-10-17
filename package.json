@@ -1,0 +1,9 @@
+{
+  "name": "youtube-melon",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "youtubei.js": "18.1.0"
+  }
+}

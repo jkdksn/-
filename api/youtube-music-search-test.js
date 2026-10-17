@@ -23,48 +23,81 @@ export default async function handler(req, res) {
       }
     );
 
-    const contents =
-      search?.contents || [];
+    const shelves = search?.contents || [];
 
     const results = [];
 
-    for (const item of contents) {
-      results.push({
-        type:
-          item?.constructor?.name || "",
+    for (const shelf of shelves) {
 
-        id:
-          item?.id || "",
+      const shelfContents =
+        shelf?.contents || [];
 
-        title:
-          getText(item?.title),
+      for (const item of shelfContents) {
 
-        artist:
-          getArtist(item),
+        results.push({
+          type:
+            item?.constructor?.name || "",
 
-        album:
-          getText(item?.album),
+          id:
+            item?.id || "",
 
-        duration:
-          getDuration(item),
+          title:
+            getText(item?.title),
 
-        subtitle:
-          getText(item?.subtitle)
-      });
+          artist:
+            getArtist(item),
+
+          artists:
+            Array.isArray(item?.artists)
+              ? item.artists.map(
+                  artist =>
+                    getText(artist)
+                )
+              : [],
+
+          album:
+            getText(item?.album),
+
+          duration:
+            getDuration(item),
+
+          subtitle:
+            getText(item?.subtitle),
+
+          flexColumns:
+            item?.flex_columns
+              ? String(item.flex_columns)
+              : "",
+
+          fixedColumns:
+            item?.fixed_columns
+              ? String(item.fixed_columns)
+              : ""
+        });
+
+      }
     }
 
     return res.status(200).json({
       success: true,
+
       query,
 
-      searchType:
-        search?.constructor?.name || "",
+      shelfCount:
+        shelves.length,
 
-      contentsType:
-        contents?.constructor?.name || "",
+      shelves: shelves.map(
+        shelf => ({
+          type:
+            shelf?.constructor?.name || "",
 
-      contentsLength:
-        contents.length,
+          title:
+            getText(shelf?.title),
+
+          contentsLength:
+            shelf?.contents?.length || 0
+        })
+      ),
 
       resultCount:
         results.length,
@@ -81,6 +114,7 @@ export default async function handler(req, res) {
 
     return res.status(500).json({
       success: false,
+
       error:
         error?.message ||
         "YouTube Music 검색 오류",
@@ -98,11 +132,15 @@ function getText(value) {
     return "";
   }
 
-  if (typeof value === "string") {
+  if (
+    typeof value === "string"
+  ) {
     return value;
   }
 
-  if (typeof value.text === "string") {
+  if (
+    typeof value.text === "string"
+  ) {
     return value.text;
   }
 
@@ -121,6 +159,7 @@ function getArtist(item) {
   }
 
   if (item.artist) {
+
     const value =
       getText(item.artist);
 
@@ -129,7 +168,9 @@ function getArtist(item) {
     }
   }
 
-  if (Array.isArray(item.artists)) {
+  if (
+    Array.isArray(item.artists)
+  ) {
 
     const artists =
       item.artists

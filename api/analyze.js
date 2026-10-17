@@ -1,171 +1,474 @@
-import { Innertube } from "youtubei.js";
-
 export default async function handler(req, res) {
-  try {
-    const query =
-      req.query?.q || "";
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      error: "POST 요청만 허용됩니다."
+    });
+  }
 
-    if (!query) {
+  try {
+    const { url } = req.body || {};
+
+    if (!url) {
       return res.status(400).json({
-        success: false,
-        error: "검색어가 없습니다.",
-        example:
-          "/api/youtube-music-test?q=RESCENE%20BLOOM"
+        error: "YouTube 링크가 없습니다."
       });
     }
 
-    const youtube =
-      await Innertube.create({
-        lang: "ko",
-        location: "KR"
+    const parsed = parseYouTubeURL(url);
+
+    if (!parsed) {
+      return res.status(400).json({
+        error: "올바른 YouTube 링크가 아닙니다."
       });
+    }
 
-    const search =
-      await youtube.music.search(
-        query,
-        {
-          type: "song"
-        }
-      );
+    const apiKey =
+      process.env.YOUTUBE_API_KEY;
 
-    const songs =
-      search?.songs?.contents || [];
+    if (!apiKey) {
+      return res.status(500).json({
+        error: "YOUTUBE_API_KEY가 설정되지 않았습니다."
+      });
+    }
 
-    const results =
-      songs.map((item) => ({
-        id:
-          item?.id || "",
+    let tracks = [];
 
-        title:
-          getText(item?.title),
-
-        artist:
-          getArtist(item),
-
-        album:
-          getText(item?.album),
-
-        duration:
-          getDuration(item),
-
-        rawType:
-          item?.constructor?.name || ""
-      }));
+    if (parsed.type === "video") {
+      tracks =
+        await getVideoTracks(
+          parsed.id,
+          apiKey
+        );
+    } else {
+      tracks =
+        await getPlaylistTracks(
+          parsed.id,
+          apiKey
+        );
+    }
 
     return res.status(200).json({
       success: true,
-
-      query,
-
-      resultCount:
-        results.length,
-
-      results
+      tracks
     });
 
   } catch (error) {
-
     console.error(
-      "YouTube Music debug error:",
+      "Analyze error:",
       error
     );
 
     return res.status(500).json({
-      success: false,
-
       error:
         error?.message ||
-        "YouTube Music 검색 오류",
-
-      stack:
-        error?.stack || ""
+        "YouTube 정보를 가져오는 중 오류가 발생했습니다."
     });
   }
 }
 
 
-function getText(value) {
+/* =========================
+   YouTube URL 파싱
+========================= */
+
+function parseYouTubeURL(value) {
+  try {
+    const url = new URL(value);
+
+    if (
+      url.hostname === "youtu.be"
+    ) {
+      const id =
+        url.pathname
+          .replace(/^\/+/, "")
+          .split("/")[0];
+
+      if (!id) {
+        return null;
+      }
+
+      return {
+        type: "video",
+        id
+      };
+    }
+
+    if (
+      url.hostname.includes(
+        "youtube.com"
+      ) ||
+      url.hostname.includes(
+        "youtube-nocookie.com"
+      )
+    ) {
+      const videoId =
+        url.searchParams.get("v");
+
+      const playlistId =
+        url.searchParams.get("list");
+
+      if (videoId) {
+        return {
+          type: "video",
+          id: videoId
+        };
+      }
+
+      if (playlistId) {
+        return {
+          type: "playlist",
+          id: playlistId
+        };
+      }
+    }
+
+    return null;
+
+  } catch {
+    return null;
+  }
+}
+
+
+/* =========================
+   단일 영상
+========================= */
+
+async function getVideoTracks(
+  videoId,
+  apiKey
+) {
+  const url =
+    "https://www.googleapis.com/youtube/v3/videos" +
+    "?part=snippet" +
+    "&id=" +
+    encodeURIComponent(videoId) +
+    "&key=" +
+    encodeURIComponent(apiKey);
+
+  const response =
+    await fetch(url);
+
+  const data =
+    await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data?.error?.message ||
+      "YouTube API 요청에 실패했습니다."
+    );
+  }
+
+  if (
+    !data.items ||
+    !data.items.length
+  ) {
+    return [];
+  }
+
+  const snippet =
+    data.items[0].snippet || {};
+
+  const title =
+    snippet.title || "";
+
+  const description =
+    snippet.description || "";
+
+  const tracks =
+    parseDescription(
+      description
+    );
+
+  /*
+    설명에서 곡 목록을 찾지 못하면
+    영상 제목 자체를 하나의 곡으로 사용
+  */
+
+  if (!tracks.length) {
+    const parsedTitle =
+      parseTitle(title);
+
+    return [
+      {
+        title:
+          parsedTitle.title,
+
+        artist:
+          parsedTitle.artist,
+
+        timestamp:
+          null,
+
+        youtubeVideoId:
+          videoId
+      }
+    ];
+  }
+
+  return tracks.map(
+    (track) => ({
+      ...track,
+      youtubeVideoId:
+        videoId
+    })
+  );
+}
+
+
+/* =========================
+   플레이리스트
+========================= */
+
+async function getPlaylistTracks(
+  playlistId,
+  apiKey
+) {
+  const tracks = [];
+
+  let nextPageToken = "";
+
+  do {
+    let url =
+      "https://www.googleapis.com/youtube/v3/playlistItems" +
+      "?part=snippet" +
+      "&playlistId=" +
+      encodeURIComponent(
+        playlistId
+      ) +
+      "&maxResults=50" +
+      "&key=" +
+      encodeURIComponent(
+        apiKey
+      );
+
+    if (nextPageToken) {
+      url +=
+        "&pageToken=" +
+        encodeURIComponent(
+          nextPageToken
+        );
+    }
+
+    const response =
+      await fetch(url);
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error?.message ||
+        "YouTube playlist API 요청에 실패했습니다."
+      );
+    }
+
+    for (
+      const item of
+      data.items || []
+    ) {
+      const snippet =
+        item.snippet || {};
+
+      const videoId =
+        snippet.resourceId?.videoId ||
+        "";
+
+      const title =
+        snippet.title || "";
+
+      if (!videoId) {
+        continue;
+      }
+
+      const parsedTitle =
+        parseTitle(title);
+
+      tracks.push({
+        title:
+          parsedTitle.title,
+
+        artist:
+          parsedTitle.artist,
+
+        timestamp:
+          null,
+
+        youtubeVideoId:
+          videoId
+      });
+    }
+
+    nextPageToken =
+      data.nextPageToken || "";
+
+  } while (nextPageToken);
+
+  return tracks;
+}
+
+
+/* =========================
+   설명에서 곡 목록 추출
+========================= */
+
+function parseDescription(
+  description
+) {
+  const tracks = [];
+
+  const lines =
+    String(
+      description || ""
+    ).split(/\r?\n/);
+
+  for (
+    const line of lines
+  ) {
+    const text =
+      line.trim();
+
+    if (!text) {
+      continue;
+    }
+
+    /*
+      00:00 제목
+      01:23 아티스트 - 제목
+      같은 형태 처리
+    */
+
+    const match =
+      text.match(
+        /^(\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/
+      );
+
+    if (!match) {
+      continue;
+    }
+
+    const timestamp =
+      match[1];
+
+    const content =
+      match[2].trim();
+
+    const parsed =
+      parseTitle(content);
+
+    if (!parsed.title) {
+      continue;
+    }
+
+    tracks.push({
+      title:
+        parsed.title,
+
+      artist:
+        parsed.artist,
+
+      timestamp
+    });
+  }
+
+  return tracks;
+}
+
+
+/* =========================
+   제목 / 가수 분리
+========================= */
+
+function parseTitle(
+  text
+) {
+  let value =
+    String(
+      text || ""
+    )
+      .replace(
+        /\s+/g,
+        " "
+      )
+      .trim();
 
   if (!value) {
-    return "";
+    return {
+      title: "",
+      artist: ""
+    };
   }
 
-  if (
-    typeof value === "string"
-  ) {
-    return value;
+  /*
+    "아티스트 - 제목"
+  */
+
+  const dashMatch =
+    value.match(
+      /^(.+?)\s+-\s+(.+)$/
+    );
+
+  if (dashMatch) {
+    return {
+      artist:
+        cleanText(
+          dashMatch[1]
+        ),
+
+      title:
+        cleanText(
+          dashMatch[2]
+        )
+    };
   }
 
-  if (
-    typeof value.text === "string"
-  ) {
-    return value.text;
-  }
+  /*
+    "제목 - 아티스트" 형태는
+    우선 제목으로 처리
+  */
 
-  try {
-    return String(value);
-  } catch {
-    return "";
-  }
+  return {
+    title:
+      cleanText(value),
+
+    artist: ""
+  };
 }
 
 
-function getArtist(item) {
+/* =========================
+   문자열 정리
+========================= */
 
-  if (!item) {
-    return "";
-  }
-
-  if (item.artist) {
-    const value =
-      getText(item.artist);
-
-    if (value) {
-      return value;
-    }
-  }
-
-  if (
-    Array.isArray(item.artists)
-  ) {
-    return item.artists
-      .map(
-        (artist) =>
-          getText(artist)
-      )
-      .filter(Boolean)
-      .join(", ");
-  }
-
-  if (item.subtitle) {
-    return getText(
-      item.subtitle
-    );
-  }
-
-  return "";
-}
-
-
-function getDuration(item) {
-
-  if (!item) {
-    return 0;
-  }
-
-  if (
-    item.duration?.seconds
-  ) {
-    return Number(
-      item.duration.seconds
-    );
-  }
-
-  if (
-    typeof item.duration === "number"
-  ) {
-    return item.duration;
-  }
-
-  return 0;
+function cleanText(
+  text
+) {
+  return String(
+    text || ""
+  )
+    .replace(
+      /<[^>]+>/g,
+      " "
+    )
+    .replace(
+      /&amp;/g,
+      "&"
+    )
+    .replace(
+      /&#39;/g,
+      "'"
+    )
+    .replace(
+      /&quot;/g,
+      '"'
+    )
+    .replace(
+      /&nbsp;/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
 }

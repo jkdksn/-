@@ -40,7 +40,7 @@ export default async function handler(req, res) {
             item?.id || "",
 
           title:
-            getNodeText(item?.title),
+            getTitle(item),
 
           artist:
             getArtist(item),
@@ -49,35 +49,120 @@ export default async function handler(req, res) {
             getArtists(item),
 
           album:
-            getNodeText(item?.album),
+            getAlbum(item),
 
           duration:
             getDuration(item),
 
           debug: {
-            artist: inspectNode(item?.artist),
-
-            artists:
-              Array.isArray(item?.artists)
-                ? item.artists.map(
-                    artist =>
-                      inspectNode(artist)
-                  )
-                : [],
+            artist:
+              inspectArtist(item),
 
             album:
-              inspectNode(item?.album),
-
-            flexColumns:
-              Array.isArray(
-                item?.flex_columns
-              )
-                ? item.flex_columns.map(
-                    column =>
-                      inspectNode(column)
-                  )
-                : []
+              inspectAlbum(item)
           }
+        });
+      }
+    }
+
+    /*
+      제목이 검색어와 정확히 일치하는 후보만
+      YouTube Music getInfo()로 추가 확인한다.
+
+      예:
+      RESCENE BLOOM 검색 결과에서
+      제목이 Bloom인 곡들만 확인.
+    */
+    const exactCandidates =
+      results.filter(
+        item =>
+          normalize(item.title) ===
+          normalize(
+            getLastSearchWord(query)
+          )
+      );
+
+    const verifiedCandidates = [];
+
+    for (
+      const candidate of exactCandidates
+    ) {
+      try {
+        const info =
+          await youtube.music.getInfo(
+            candidate.id
+          );
+
+        const basic =
+          info?.basic_info || {};
+
+        verifiedCandidates.push({
+          id:
+            candidate.id,
+
+          searchTitle:
+            candidate.title,
+
+          searchArtist:
+            candidate.artist,
+
+          searchArtists:
+            candidate.artists,
+
+          searchAlbum:
+            candidate.album,
+
+          searchDuration:
+            candidate.duration,
+
+          infoTitle:
+            basic.title || "",
+
+          infoAuthor:
+            basic.author || "",
+
+          infoDuration:
+            basic.duration || 0,
+
+          infoChannelId:
+            basic.channel_id || ""
+        });
+
+      } catch (error) {
+
+        verifiedCandidates.push({
+          id:
+            candidate.id,
+
+          searchTitle:
+            candidate.title,
+
+          searchArtist:
+            candidate.artist,
+
+          searchArtists:
+            candidate.artists,
+
+          searchAlbum:
+            candidate.album,
+
+          searchDuration:
+            candidate.duration,
+
+          infoTitle:
+            "",
+
+          infoAuthor:
+            "",
+
+          infoDuration:
+            0,
+
+          infoChannelId:
+            "",
+
+          infoError:
+            error?.message || ""
         });
       }
     }
@@ -90,24 +175,15 @@ export default async function handler(req, res) {
       shelfCount:
         shelves.length,
 
-      shelves:
-        shelves.map(
-          shelf => ({
-            type:
-              shelf?.constructor?.name || "",
-
-            title:
-              getNodeText(shelf?.title),
-
-            contentsLength:
-              shelf?.contents?.length || 0
-          })
-        ),
-
       resultCount:
         results.length,
 
-      results
+      results,
+
+      exactCandidateCount:
+        exactCandidates.length,
+
+      verifiedCandidates
     });
 
   } catch (error) {
@@ -131,33 +207,163 @@ export default async function handler(req, res) {
 }
 
 
-/*
-  YouTube.js의 Text / YTNode 객체에서
-  실제 글자를 최대한 안전하게 가져온다.
-*/
-function getNodeText(value) {
+/* =========================
+   제목
+========================= */
+
+function getTitle(item) {
+
+  if (!item) {
+    return "";
+  }
+
+  return getText(
+    item.title
+  );
+}
+
+
+/* =========================
+   아티스트
+========================= */
+
+function getArtist(item) {
+
+  if (!item) {
+    return "";
+  }
+
+  /*
+    가장 직접적인 artist
+  */
+  if (item.artist) {
+    const artist =
+      getText(
+        item.artist
+      );
+
+    if (artist) {
+      return artist;
+    }
+  }
+
+  /*
+    artists 배열
+  */
+  if (
+    Array.isArray(
+      item.artists
+    )
+  ) {
+    const artists =
+      item.artists
+        .map(
+          artist =>
+            getText(artist)
+        )
+        .filter(Boolean);
+
+    if (artists.length) {
+      return artists.join(", ");
+    }
+  }
+
+  return "";
+}
+
+
+function getArtists(item) {
+
+  if (
+    !item ||
+    !Array.isArray(
+      item.artists
+    )
+  ) {
+    return [];
+  }
+
+  return item.artists
+    .map(
+      artist =>
+        getText(artist)
+    )
+    .filter(Boolean);
+}
+
+
+/* =========================
+   앨범
+========================= */
+
+function getAlbum(item) {
+
+  if (!item?.album) {
+    return "";
+  }
+
+  return getText(
+    item.album
+  );
+}
+
+
+/* =========================
+   Text / Name 추출
+========================= */
+
+function getText(value) {
 
   if (!value) {
     return "";
   }
 
-  if (typeof value === "string") {
+  if (
+    typeof value === "string"
+  ) {
     return value;
   }
 
-  if (typeof value === "number") {
-    return String(value);
+  /*
+    artist 객체:
+    {
+      name,
+      channel_id,
+      endpoint
+    }
+  */
+
+  if (
+    typeof value.name === "string"
+  ) {
+    return value.name;
   }
 
-  if (typeof value.text === "string") {
+  /*
+    album 객체도 name을 사용한다.
+  */
+
+  if (
+    typeof value.text === "string"
+  ) {
     return value.text;
   }
 
-  if (typeof value.simpleText === "string") {
+  if (
+    typeof value.simpleText === "string"
+  ) {
     return value.simpleText;
   }
 
-  if (Array.isArray(value.runs)) {
+  /*
+    runs 구조
+  */
+
+  if (
+    Array.isArray(
+      value.runs
+    )
+  ) {
     const text =
       value.runs
         .map(
@@ -174,114 +380,31 @@ function getNodeText(value) {
   }
 
   /*
-    YouTube.js의 일부 Text 객체는
-    toString()을 통해 실제 텍스트를 반환한다.
+    마지막 fallback
   */
+
   try {
+
     const text =
       value.toString();
 
     if (
       text &&
-      text !== "[object Object]"
+      text !==
+        "[object Object]"
     ) {
       return text;
     }
+
   } catch {}
 
   return "";
 }
 
 
-/*
-  artist / artists를 최대한 정확하게 추출한다.
-*/
-function getArtist(item) {
-
-  if (!item) {
-    return "";
-  }
-
-  if (item.artist) {
-    const artist =
-      getNodeText(item.artist);
-
-    if (artist) {
-      return artist;
-    }
-  }
-
-  if (
-    Array.isArray(item.artists)
-  ) {
-    const artists =
-      item.artists
-        .map(
-          artist =>
-            getNodeText(artist)
-        )
-        .filter(Boolean);
-
-    if (artists.length) {
-      return artists.join(", ");
-    }
-  }
-
-  /*
-    MusicResponsiveListItem의
-    flex_columns 구조도 확인한다.
-  */
-  if (
-    Array.isArray(
-      item.flex_columns
-    )
-  ) {
-    const values =
-      item.flex_columns
-        .map(
-          column =>
-            getNodeText(column)
-        )
-        .filter(Boolean);
-
-    /*
-      첫 번째 컬럼은 제목인 경우가 많으므로
-      제목과 다른 값을 아티스트 후보로 사용한다.
-    */
-    for (const value of values) {
-      if (
-        value &&
-        normalize(value) !==
-          normalize(
-            getNodeText(item.title)
-          )
-      ) {
-        return value;
-      }
-    }
-  }
-
-  return "";
-}
-
-
-function getArtists(item) {
-
-  if (
-    !item ||
-    !Array.isArray(item.artists)
-  ) {
-    return [];
-  }
-
-  return item.artists
-    .map(
-      artist =>
-        getNodeText(artist)
-    )
-    .filter(Boolean);
-}
-
+/* =========================
+   재생시간
+========================= */
 
 function getDuration(item) {
 
@@ -298,7 +421,8 @@ function getDuration(item) {
   }
 
   if (
-    typeof item.duration === "number"
+    typeof item.duration ===
+    "number"
   ) {
     return item.duration;
   }
@@ -307,65 +431,99 @@ function getDuration(item) {
 }
 
 
-/*
-  디버깅용:
-  실제 내부 객체에 어떤 속성이 있는지 확인한다.
-*/
-function inspectNode(value) {
+/* =========================
+   디버깅
+========================= */
 
-  if (!value) {
+function inspectArtist(item) {
+
+  if (!item) {
     return null;
   }
 
-  const result = {
-    constructor:
-      value?.constructor?.name || "",
+  if (
+    Array.isArray(
+      item.artists
+    )
+  ) {
+    return item.artists.map(
+      artist => ({
+        constructor:
+          artist?.constructor?.name ||
+          "",
 
-    keys: []
-  };
+        name:
+          typeof artist?.name ===
+          "string"
+            ? artist.name
+            : "",
 
-  try {
-    result.keys =
-      Object.keys(value);
-  } catch {}
+        channel_id:
+          artist?.channel_id || "",
 
-  /*
-    실제 텍스트 후보도 같이 보여준다.
-  */
-  result.text =
-    typeof value.text === "string"
-      ? value.text
-      : "";
-
-  result.simpleText =
-    typeof value.simpleText === "string"
-      ? value.simpleText
-      : "";
-
-  if (Array.isArray(value.runs)) {
-    result.runs =
-      value.runs.map(
-        run => ({
-          constructor:
-            run?.constructor?.name || "",
-
-          text:
-            typeof run === "string"
-              ? run
-              : run?.text || "",
-
-          keys:
-            run &&
-            typeof run === "object"
-              ? Object.keys(run)
-              : []
-        })
-      );
+        keys:
+          Object.keys(
+            artist || {}
+          )
+      })
+    );
   }
 
-  return result;
+  return null;
 }
 
+
+function inspectAlbum(item) {
+
+  if (!item?.album) {
+    return null;
+  }
+
+  return {
+    constructor:
+      item.album?.constructor
+        ?.name || "",
+
+    name:
+      typeof item.album?.name ===
+      "string"
+        ? item.album.name
+        : "",
+
+    id:
+      item.album?.id || "",
+
+    keys:
+      Object.keys(
+        item.album || {}
+      )
+  };
+}
+
+
+/* =========================
+   검색어 마지막 단어
+========================= */
+
+function getLastSearchWord(
+  query
+) {
+
+  const words =
+    String(query || "")
+      .trim()
+      .split(/\s+/);
+
+  return (
+    words[words.length - 1] ||
+    ""
+  );
+}
+
+
+/* =========================
+   비교용 정규화
+========================= */
 
 function normalize(value) {
 

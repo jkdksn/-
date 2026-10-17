@@ -2,129 +2,69 @@ import { Innertube } from "youtubei.js";
 
 export default async function handler(req, res) {
   try {
-    const query =
-      req.query?.q || "";
+    const query = req.query?.q || "";
 
     if (!query) {
       return res.status(400).json({
         success: false,
-        error: "검색어가 없습니다.",
-        example:
-          "/api/youtube-music-search-test?q=RESCENE%20BLOOM"
+        error: "검색어가 없습니다."
       });
     }
 
-    const youtube =
-      await Innertube.create({
-        lang: "ko",
-        location: "KR"
-      });
+    const youtube = await Innertube.create({
+      lang: "ko",
+      location: "KR"
+    });
 
-    const search =
-      await youtube.music.search(
-        query,
-        {
-          type: "song"
-        }
-      );
-
-    /*
-      검색 결과의 실제 구조를 확인하기 위한
-      디버그 정보
-    */
-
-    const songs =
-      search?.songs;
+    const search = await youtube.music.search(
+      query,
+      {
+        type: "song"
+      }
+    );
 
     const contents =
-      songs?.contents || [];
+      search?.contents || [];
 
     const results = [];
 
-    for (
-      const item of contents
-    ) {
+    for (const item of contents) {
       results.push({
-        constructor:
+        type:
           item?.constructor?.name || "",
 
         id:
           item?.id || "",
 
         title:
-          safeString(
-            item?.title
-          ),
+          getText(item?.title),
 
         artist:
-          safeString(
-            item?.artist
-          ),
-
-        artists:
-          Array.isArray(
-            item?.artists
-          )
-            ? item.artists.map(
-                (artist) =>
-                  safeString(
-                    artist
-                  )
-              )
-            : [],
+          getArtist(item),
 
         album:
-          safeString(
-            item?.album
-          ),
+          getText(item?.album),
 
         duration:
-          safeDuration(
-            item?.duration
-          ),
+          getDuration(item),
 
         subtitle:
-          safeString(
-            item?.subtitle
-          )
+          getText(item?.subtitle)
       });
     }
 
-    /*
-      search 객체에서 실제로 어떤 키가
-      존재하는지도 확인
-    */
-
     return res.status(200).json({
       success: true,
-
       query,
 
-      searchKeys:
-        Object.keys(
-          search || {}
-        ),
-
-      songsExists:
-        !!songs,
-
-      songsKeys:
-        songs
-          ? Object.keys(songs)
-          : [],
-
-      contentsExists:
-        !!songs?.contents,
+      searchType:
+        search?.constructor?.name || "",
 
       contentsType:
-        songs?.contents
-          ? songs.contents
-              .constructor?.name
-          : "",
+        contents?.constructor?.name || "",
 
       contentsLength:
-        songs?.contents?.length ??
-        0,
+        contents.length,
 
       resultCount:
         results.length,
@@ -141,7 +81,6 @@ export default async function handler(req, res) {
 
     return res.status(500).json({
       success: false,
-
       error:
         error?.message ||
         "YouTube Music 검색 오류",
@@ -153,21 +92,17 @@ export default async function handler(req, res) {
 }
 
 
-function safeString(value) {
+function getText(value) {
 
   if (!value) {
     return "";
   }
 
-  if (
-    typeof value === "string"
-  ) {
+  if (typeof value === "string") {
     return value;
   }
 
-  if (
-    typeof value.text === "string"
-  ) {
+  if (typeof value.text === "string") {
     return value.text;
   }
 
@@ -179,22 +114,64 @@ function safeString(value) {
 }
 
 
-function safeDuration(value) {
+function getArtist(item) {
 
-  if (!value) {
+  if (!item) {
+    return "";
+  }
+
+  if (item.artist) {
+    const value =
+      getText(item.artist);
+
+    if (value) {
+      return value;
+    }
+  }
+
+  if (Array.isArray(item.artists)) {
+
+    const artists =
+      item.artists
+        .map(
+          artist =>
+            getText(artist)
+        )
+        .filter(Boolean);
+
+    if (artists.length) {
+      return artists.join(", ");
+    }
+  }
+
+  if (item.subtitle) {
+    return getText(
+      item.subtitle
+    );
+  }
+
+  return "";
+}
+
+
+function getDuration(item) {
+
+  if (!item) {
     return 0;
   }
 
   if (
-    typeof value === "number"
+    item.duration?.seconds
   ) {
-    return value;
+    return Number(
+      item.duration.seconds
+    );
   }
 
   if (
-    typeof value.seconds === "number"
+    typeof item.duration === "number"
   ) {
-    return value.seconds;
+    return item.duration;
   }
 
   return 0;

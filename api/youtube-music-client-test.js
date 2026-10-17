@@ -18,117 +18,79 @@ export default async function handler(req, res) {
         location: "KR"
       });
 
-    const clients = [
-      "WEB",
-      "YTMUSIC",
-      "ANDROID"
-    ];
+    const info =
+      await youtube.getInfo(
+        videoId,
+        "WEB"
+      );
 
-    const results = [];
+    const page =
+      info?.page || [];
 
-    for (const client of clients) {
+    const page1 =
+      page[1] || {};
 
-      try {
+    const panels =
+      page1?.engagement_panels || [];
 
-        const info =
-          await youtube.getInfo(
-            videoId,
-            client
-          );
+    const structured =
+      panels.find(
+        panel =>
+          panel?.content?.constructor?.name ===
+          "StructuredDescriptionContent"
+      );
 
-        let tracks = [];
-
-        try {
-          tracks =
-            info.music_tracks || [];
-        } catch {}
-
-        const page =
-          info?.page || [];
-
-        const next =
-          page[1] || {};
-
-        const engagementPanels =
-          next?.engagement_panels || [];
-
-        results.push({
-          client,
-
-          musicTrackCount:
-            Array.isArray(tracks)
-              ? tracks.length
-              : 0,
-
-          musicTracks:
-            Array.isArray(tracks)
-              ? tracks.slice(0, 30)
-              : [],
-
-          pageCount:
-            page.length,
-
-          page1Keys:
-            Object.keys(next),
-
-          engagementPanelCount:
-            Array.isArray(
-              engagementPanels
-            )
-              ? engagementPanels.length
-              : 0,
-
-          engagementPanelTypes:
-            Array.isArray(
-              engagementPanels
-            )
-              ? engagementPanels.map(
-                  panel => ({
-                    type:
-                      panel?.content
-                        ?.constructor
-                        ?.name || "",
-
-                    contentType:
-                      panel?.content
-                        ?.type || "",
-
-                    keys:
-                      panel?.content &&
-                      typeof panel.content ===
-                        "object"
-                        ? Object.keys(
-                            panel.content
-                          ).slice(0, 30)
-                        : []
-                  })
-                ).slice(0, 30)
-              : []
-        });
-
-      } catch (error) {
-
-        results.push({
-          client,
-
-          error:
-            error?.message || ""
-        });
-      }
+    if (!structured) {
+      return res.status(200).json({
+        success: true,
+        videoId,
+        found: false,
+        panelCount: panels.length
+      });
     }
+
+    const content =
+      structured.content;
+
+    const items =
+      content?.items || [];
+
+    const output =
+      items.map(
+        (item, index) => ({
+          index,
+
+          constructor:
+            item?.constructor?.name || "",
+
+          keys:
+            Object.keys(
+              item || {}
+            ),
+
+          data:
+            inspect(item)
+        })
+      );
 
     return res.status(200).json({
       success: true,
 
       videoId,
 
-      results
+      found: true,
+
+      itemCount:
+        items.length,
+
+      items:
+        output
     });
 
   } catch (error) {
 
     console.error(
-      "YouTube client comparison error:",
+      "Structured description error:",
       error
     );
 
@@ -137,7 +99,107 @@ export default async function handler(req, res) {
 
       error:
         error?.message ||
-        "YouTube 클라이언트 비교 중 오류가 발생했습니다."
+        "분석 실패"
     });
   }
+}
+
+
+function inspect(value) {
+
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+
+    return {
+      type: "array",
+
+      length:
+        value.length,
+
+      items:
+        value
+          .slice(0, 20)
+          .map(
+            item =>
+              inspect(item)
+          )
+    };
+  }
+
+  if (
+    typeof value === "object"
+  ) {
+
+    const output = {};
+
+    for (
+      const key of
+      Object.keys(value)
+    ) {
+
+      try {
+
+        const child =
+          value[key];
+
+        if (
+          typeof child === "string" ||
+          typeof child === "number" ||
+          typeof child === "boolean"
+        ) {
+
+          output[key] =
+            String(child).slice(
+              0,
+              500
+            );
+
+        } else if (
+          Array.isArray(child)
+        ) {
+
+          output[key] = {
+            type: "array",
+            length:
+              child.length
+          };
+
+        } else if (
+          child &&
+          typeof child === "object"
+        ) {
+
+          output[key] = {
+            type:
+              child?.constructor?.name ||
+              "Object",
+
+            keys:
+              Object.keys(
+                child
+              ).slice(0, 30)
+          };
+        }
+
+      } catch {}
+    }
+
+    return output;
+  }
+
+  return null;
 }

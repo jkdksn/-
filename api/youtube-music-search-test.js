@@ -28,12 +28,10 @@ export default async function handler(req, res) {
     const results = [];
 
     for (const shelf of shelves) {
-
       const shelfContents =
         shelf?.contents || [];
 
       for (const item of shelfContents) {
-
         results.push({
           type:
             item?.constructor?.name || "",
@@ -42,39 +40,45 @@ export default async function handler(req, res) {
             item?.id || "",
 
           title:
-            getText(item?.title),
+            getNodeText(item?.title),
 
           artist:
             getArtist(item),
 
           artists:
-            Array.isArray(item?.artists)
-              ? item.artists.map(
-                  artist =>
-                    getText(artist)
-                )
-              : [],
+            getArtists(item),
 
           album:
-            getText(item?.album),
+            getNodeText(item?.album),
 
           duration:
             getDuration(item),
 
-          subtitle:
-            getText(item?.subtitle),
+          debug: {
+            artist: inspectNode(item?.artist),
 
-          flexColumns:
-            item?.flex_columns
-              ? String(item.flex_columns)
-              : "",
+            artists:
+              Array.isArray(item?.artists)
+                ? item.artists.map(
+                    artist =>
+                      inspectNode(artist)
+                  )
+                : [],
 
-          fixedColumns:
-            item?.fixed_columns
-              ? String(item.fixed_columns)
-              : ""
+            album:
+              inspectNode(item?.album),
+
+            flexColumns:
+              Array.isArray(
+                item?.flex_columns
+              )
+                ? item.flex_columns.map(
+                    column =>
+                      inspectNode(column)
+                  )
+                : []
+          }
         });
-
       }
     }
 
@@ -86,18 +90,19 @@ export default async function handler(req, res) {
       shelfCount:
         shelves.length,
 
-      shelves: shelves.map(
-        shelf => ({
-          type:
-            shelf?.constructor?.name || "",
+      shelves:
+        shelves.map(
+          shelf => ({
+            type:
+              shelf?.constructor?.name || "",
 
-          title:
-            getText(shelf?.title),
+            title:
+              getNodeText(shelf?.title),
 
-          contentsLength:
-            shelf?.contents?.length || 0
-        })
-      ),
+            contentsLength:
+              shelf?.contents?.length || 0
+          })
+        ),
 
       resultCount:
         results.length,
@@ -126,32 +131,71 @@ export default async function handler(req, res) {
 }
 
 
-function getText(value) {
+/*
+  YouTube.js의 Text / YTNode 객체에서
+  실제 글자를 최대한 안전하게 가져온다.
+*/
+function getNodeText(value) {
 
   if (!value) {
     return "";
   }
 
-  if (
-    typeof value === "string"
-  ) {
+  if (typeof value === "string") {
     return value;
   }
 
-  if (
-    typeof value.text === "string"
-  ) {
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  if (typeof value.text === "string") {
     return value.text;
   }
 
-  try {
-    return String(value);
-  } catch {
-    return "";
+  if (typeof value.simpleText === "string") {
+    return value.simpleText;
   }
+
+  if (Array.isArray(value.runs)) {
+    const text =
+      value.runs
+        .map(
+          run =>
+            typeof run === "string"
+              ? run
+              : run?.text || ""
+        )
+        .join("");
+
+    if (text) {
+      return text;
+    }
+  }
+
+  /*
+    YouTube.js의 일부 Text 객체는
+    toString()을 통해 실제 텍스트를 반환한다.
+  */
+  try {
+    const text =
+      value.toString();
+
+    if (
+      text &&
+      text !== "[object Object]"
+    ) {
+      return text;
+    }
+  } catch {}
+
+  return "";
 }
 
 
+/*
+  artist / artists를 최대한 정확하게 추출한다.
+*/
 function getArtist(item) {
 
   if (!item) {
@@ -159,24 +203,22 @@ function getArtist(item) {
   }
 
   if (item.artist) {
+    const artist =
+      getNodeText(item.artist);
 
-    const value =
-      getText(item.artist);
-
-    if (value) {
-      return value;
+    if (artist) {
+      return artist;
     }
   }
 
   if (
     Array.isArray(item.artists)
   ) {
-
     const artists =
       item.artists
         .map(
           artist =>
-            getText(artist)
+            getNodeText(artist)
         )
         .filter(Boolean);
 
@@ -185,13 +227,59 @@ function getArtist(item) {
     }
   }
 
-  if (item.subtitle) {
-    return getText(
-      item.subtitle
-    );
+  /*
+    MusicResponsiveListItem의
+    flex_columns 구조도 확인한다.
+  */
+  if (
+    Array.isArray(
+      item.flex_columns
+    )
+  ) {
+    const values =
+      item.flex_columns
+        .map(
+          column =>
+            getNodeText(column)
+        )
+        .filter(Boolean);
+
+    /*
+      첫 번째 컬럼은 제목인 경우가 많으므로
+      제목과 다른 값을 아티스트 후보로 사용한다.
+    */
+    for (const value of values) {
+      if (
+        value &&
+        normalize(value) !==
+          normalize(
+            getNodeText(item.title)
+          )
+      ) {
+        return value;
+      }
+    }
   }
 
   return "";
+}
+
+
+function getArtists(item) {
+
+  if (
+    !item ||
+    !Array.isArray(item.artists)
+  ) {
+    return [];
+  }
+
+  return item.artists
+    .map(
+      artist =>
+        getNodeText(artist)
+    )
+    .filter(Boolean);
 }
 
 
@@ -216,4 +304,78 @@ function getDuration(item) {
   }
 
   return 0;
+}
+
+
+/*
+  디버깅용:
+  실제 내부 객체에 어떤 속성이 있는지 확인한다.
+*/
+function inspectNode(value) {
+
+  if (!value) {
+    return null;
+  }
+
+  const result = {
+    constructor:
+      value?.constructor?.name || "",
+
+    keys: []
+  };
+
+  try {
+    result.keys =
+      Object.keys(value);
+  } catch {}
+
+  /*
+    실제 텍스트 후보도 같이 보여준다.
+  */
+  result.text =
+    typeof value.text === "string"
+      ? value.text
+      : "";
+
+  result.simpleText =
+    typeof value.simpleText === "string"
+      ? value.simpleText
+      : "";
+
+  if (Array.isArray(value.runs)) {
+    result.runs =
+      value.runs.map(
+        run => ({
+          constructor:
+            run?.constructor?.name || "",
+
+          text:
+            typeof run === "string"
+              ? run
+              : run?.text || "",
+
+          keys:
+            run &&
+            typeof run === "object"
+              ? Object.keys(run)
+              : []
+        })
+      );
+  }
+
+  return result;
+}
+
+
+function normalize(value) {
+
+  return String(
+    value || ""
+  )
+    .toLowerCase()
+    .replace(
+      /\s+/g,
+      ""
+    )
+    .trim();
 }
